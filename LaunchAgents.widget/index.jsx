@@ -209,9 +209,13 @@ const runAndWait = async (label, runsBefore) => {
   return null;
 };
 
-const AgentRow = ({ a }) => {
+const AgentRow = ({ a, displayName, onSetName }) => {
   // null = show live data; "running" = spinner; {dotClass,lastrun,runs} = result
   const [manual, setManual] = React.useState(null);
+  // Rename UI state, local to this row.
+  const [menuOpen, setMenuOpen] = React.useState(false);
+  const [editing, setEditing] = React.useState(false);
+  const [draft, setDraft] = React.useState("");
 
   // Once the 5-min live refresh reflects the manual run, drop the override.
   React.useEffect(() => {
@@ -224,7 +228,8 @@ const AgentRow = ({ a }) => {
     }
   }, [a.runs, a.exit, a.lastrun]);
 
-  const name = a.label;
+  const name = displayName;
+  const hasCustomName = name !== a.label;
   const running = manual === "running";
   const dotClass = running
     ? "run"
@@ -251,17 +256,80 @@ const AgentRow = ({ a }) => {
     }
   };
 
+  // Right-click the name to reveal the rename menu.
+  const openMenu = (e) => {
+    e.preventDefault();
+    setMenuOpen(true);
+  };
+
+  const startEdit = () => {
+    setDraft(name);
+    setEditing(true);
+    setMenuOpen(false);
+  };
+
+  const commitEdit = () => {
+    onSetName(a.label, draft.trim());
+    setEditing(false);
+  };
+
+  const cancelEdit = () => setEditing(false);
+
+  const resetName = () => {
+    onSetName(a.label, "");
+    setMenuOpen(false);
+  };
+
+  const onKeyDown = (e) => {
+    if (e.key === "Enter") commitEdit();
+    else if (e.key === "Escape") cancelEdit();
+  };
+
   return (
     <div className="row">
       <div className="rowmain">
-        <div className="label">
-          {dotClass === "run" ? (
-            <span className="spinner" />
-          ) : (
-            <span className={"dot " + dotClass} />
-          )}
-          {name}
-        </div>
+        {editing ? (
+          <div className="name-edit">
+            <span className={dotClass === "run" ? "spinner" : "dot " + dotClass} />
+            <input
+              className="name-input"
+              autoFocus
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={onKeyDown}
+              onBlur={cancelEdit}
+              placeholder={a.label}
+            />
+          </div>
+        ) : (
+          <div
+            className="label"
+            onContextMenu={openMenu}
+            title="Right-click to rename"
+          >
+            {dotClass === "run" ? (
+              <span className="spinner" />
+            ) : (
+              <span className={"dot " + dotClass} />
+            )}
+            {name}
+          </div>
+        )}
+        {menuOpen && !editing && (
+          <div className="name-menu">
+            <div className="edit-btn" onClick={startEdit}>
+              ✎ Edit name
+            </div>
+            {hasCustomName && (
+              <div className="edit-btn" onClick={resetName}>
+                Reset
+              </div>
+            )}
+            <div className="edit-btn" onClick={() => setMenuOpen(false)}>
+              Cancel
+            </div>
+          </div>
+        )}
         <div className="meta">
           {lastrun ? "last run: " + lastrun : "last run: unknown"}
         </div>
@@ -287,6 +355,7 @@ const AgentRow = ({ a }) => {
 // localStorage keys for persisted position offset and lock state.
 const POS_KEY = "launchagents.pos";
 const LOCK_KEY = "launchagents.locked";
+const NAMES_KEY = "launchagents.names";
 
 // Übersicht positions the widget via the `className` CSS (top/right) on the
 // container element that wraps our render output. To move the whole widget
@@ -309,6 +378,27 @@ const Widget = ({ output }) => {
   const [locked, setLocked] = React.useState(
     () => localStorage.getItem(LOCK_KEY) !== "false"
   );
+
+  const [names, setNames] = React.useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem(NAMES_KEY)) || {};
+    } catch (e) {
+      return {};
+    }
+  });
+
+  // Save (non-empty) or clear (empty) a custom display name for a label.
+  const setName = (label, value) => {
+    setNames((prev) => {
+      const next = { ...prev };
+      if (value) next[label] = value;
+      else delete next[label];
+      try {
+        localStorage.setItem(NAMES_KEY, JSON.stringify(next));
+      } catch (e) {}
+      return next;
+    });
+  };
 
   // Reassert the offset on the container every render, in case Übersicht
   // recreates the container element on a refresh.
@@ -390,7 +480,15 @@ const Widget = ({ output }) => {
       {items && items.length === 0 && (
         <div className="empty">No user agents found</div>
       )}
-      {items && items.map((a) => <AgentRow a={a} key={a.label} />)}
+      {items &&
+        items.map((a) => (
+          <AgentRow
+            a={a}
+            key={a.label}
+            displayName={names[a.label] || a.label}
+            onSetName={setName}
+          />
+        ))}
     </div>
   );
 };
