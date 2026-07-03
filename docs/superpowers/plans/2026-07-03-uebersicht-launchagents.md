@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Package the personal Übersicht LaunchAgents widget into a zero-config, gallery-distributable widget, adding interactive per-agent renaming and an optional single-display (menu-bar screen) mode, then migrate the personal machine to it.
+**Goal:** Package the personal Übersicht LaunchAgents widget into a zero-config, gallery-distributable widget, adding interactive per-agent renaming, view/edit of agent schedules, and an optional single-display (menu-bar screen) mode, then migrate the personal machine to it.
 
 **Architecture:** A single `LaunchAgents.widget/` folder containing `index.jsx` (plain JSX, no build step — Übersicht bundles React and transpiles) and a bundled `launchagent-status.sh` invoked via a relative path. Custom display names and single-display mode are runtime features persisted in `localStorage`; the data script auto-discovers the user's own LaunchAgents. Repo root carries gallery metadata (`widget.json`, `screenshot.png`), `build.sh`, `README.md`, `LICENSE`.
 
-**Tech Stack:** Übersicht 1.6 (React 16.13.1 bundled), plain JSX, Bash + stock macOS CLI (`launchctl`, `/usr/libexec/PlistBuddy`, `awk`, `stat`, `id`), `jq` and `shellcheck` for tests, Übersicht's bundled Babel for JSX transpile checks.
+**Tech Stack:** Übersicht 1.6 (React 16.13.1 bundled), plain JSX, Bash + stock macOS CLI (`launchctl`, `/usr/libexec/PlistBuddy`, `plutil`, `awk`, `stat`, `id`), `jq` and `shellcheck` for tests, Übersicht's bundled Babel for JSX transpile checks.
 
 ## Global Constraints
 
@@ -25,16 +25,18 @@
 ```
 uebersicht-launchagents/
 ├── LaunchAgents.widget/
-│   ├── index.jsx                 # widget (created Task 2, extended Tasks 3-4)
-│   └── launchagent-status.sh     # bundled data script (Task 1)
+│   ├── index.jsx                 # widget (created Task 2, extended Tasks 3-5)
+│   ├── launchagent-status.sh     # bundled data script (Task 1)
+│   └── launchagent-schedule.sh   # schedule read/edit helper (Task 4)
 ├── test/
 │   ├── status_test.sh            # asserts the bundled script emits a JSON array (Task 1)
+│   ├── schedule_test.sh          # asserts schedule get/set against a throwaway plist (Task 4)
 │   └── transpile_test.sh         # asserts index.jsx transpiles with Übersicht's Babel (Task 2)
-├── widget.json                   # gallery manifest (Task 5)
-├── screenshot.png                # gallery screenshot (Task 5)
-├── build.sh                      # produces LaunchAgents.widget.zip (Task 5)
-├── README.md                     # docs (Task 5)
-├── LICENSE                       # MIT (Task 5)
+├── widget.json                   # gallery manifest (Task 6)
+├── screenshot.png                # gallery screenshot (Task 6)
+├── build.sh                      # produces LaunchAgents.widget.zip (Task 6)
+├── README.md                     # docs (Task 6)
+├── LICENSE                       # MIT (Task 6)
 ├── .gitignore                    # (Task 1)
 └── docs/superpowers/…            # spec + this plan (already committed)
 ```
@@ -51,7 +53,7 @@ Repo already exists at `~/Projects/uebersicht-launchagents` (git initialized, sp
 - Create: `.gitignore`
 
 **Interfaces:**
-- Produces: an executable `LaunchAgents.widget/launchagent-status.sh` that, when run with the working directory inside the widget folder, prints a JSON array to stdout. Each element: `{"label","loaded","state","runs","exit","lastrun","logpath"}`. Empty environments print `[]`.
+- Produces: an executable `LaunchAgents.widget/launchagent-status.sh` that, when run with the working directory inside the widget folder, prints a JSON array to stdout. Each element: `{"label","loaded","state","runs","exit","lastrun","logpath","plist"}`. Empty environments print `[]`. The `plist` field (absolute path to the agent's plist) is consumed by the Task 4 schedule helper.
 
 - [ ] **Step 1: Create `.gitignore`**
 
@@ -116,11 +118,13 @@ for plist in "$AGENT_DIR"/*.plist; do
 
     [ $first -eq 1 ] || printf ','
     first=0
-    printf '{"label":"%s","loaded":"%s","state":"%s","runs":"%s","exit":"%s","lastrun":"%s","logpath":"%s"}' \
-        "$label" "$loaded" "${state:-}" "${runs:-}" "${exitc:-}" "${lastrun:-}" "${haslog:-}"
+    printf '{"label":"%s","loaded":"%s","state":"%s","runs":"%s","exit":"%s","lastrun":"%s","logpath":"%s","plist":"%s"}' \
+        "$label" "$loaded" "${state:-}" "${runs:-}" "${exitc:-}" "${lastrun:-}" "${haslog:-}" "$plist"
 done
 printf ']'
 ```
+
+(The only change from the personal original is the added `"plist"` field and its `"$plist"` argument — the loop variable already holds the absolute plist path.)
 
 - [ ] **Step 3: Make it executable**
 
@@ -295,6 +299,35 @@ export const className = `
     outline: none;
   }
   .name-menu { display: flex; gap: 6px; margin-top: 5px; }
+  .name-menu-wrap { margin-top: 5px; }
+  .sched-line { font-size: 11px; opacity: 0.85; margin-top: 6px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .sched-label { opacity: 0.6; }
+  .sched-edit-btn { margin-left: 2px; }
+  .sched-edit { display: flex; align-items: center; gap: 5px; margin-top: 6px; flex-wrap: wrap; }
+  .sched-num {
+    width: 42px;
+    font-size: 12px;
+    font-family: inherit;
+    color: #fff;
+    background: rgba(255, 255, 255, 0.10);
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    border-radius: 6px;
+    padding: 3px 4px;
+    outline: none;
+  }
+  .sched-colon { opacity: 0.7; }
+  .sched-select {
+    font-size: 12px;
+    font-family: inherit;
+    color: #fff;
+    background: rgba(255, 255, 255, 0.10);
+    border: 1px solid rgba(255, 255, 255, 0.28);
+    border-radius: 6px;
+    padding: 3px 4px;
+    outline: none;
+  }
+  .sched-select option { color: #000; }
+  .sched-err { font-size: 11px; color: #f5a3a3; margin-top: 5px; }
   .meta { font-size: 11px; opacity: 0.72; margin-top: 3px; margin-left: 13px; }
   .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
   .ok { background: #5fd36a; }
@@ -553,7 +586,7 @@ const Widget = ({ output }) => {
 export const render = ({ output }) => <Widget output={output} />;
 ```
 
-Note: the CSS already defines `.edit-btn`, `.name-edit`, `.name-input`, `.name-menu` classes used by Task 3, so no CSS churn is needed later.
+Note: the CSS already defines `.edit-btn`, `.name-edit`, `.name-input`, `.name-menu` classes used by Task 3 and the `.name-menu-wrap`/`.sched-*` classes used by Task 4, so no CSS churn is needed in later tasks.
 
 - [ ] **Step 2: Write the failing transpile test**
 
@@ -853,7 +886,440 @@ git commit -m "feat: interactive right-click rename persisted in localStorage"
 
 ---
 
-### Task 4: Single-display (menu-bar screen) mode
+### Task 4: View / edit an agent's schedule
+
+Add a bundled `launchagent-schedule.sh` helper (read + edit schedule) and wire it into the existing right-click menu: show the human-readable schedule, and for a single-dict `StartCalendarInterval` allow editing hour/minute/weekday (rewrites the plist, backs it up, reloads the agent).
+
+**Files:**
+- Create: `LaunchAgents.widget/launchagent-schedule.sh`
+- Create: `test/schedule_test.sh`
+- Modify: `LaunchAgents.widget/index.jsx`
+
+**Interfaces:**
+- Consumes: `a.plist` (from Task 1 status JSON); the Task 3 `AgentRow` menu state (`menuOpen`, `editing`).
+- Produces:
+  - `launchagent-schedule.sh get <plist>` → JSON `{"kind":"calendar"|"calendar-multi"|"interval"|"none","editable":bool[,"hour","minute","weekday"|"interval"]}`.
+  - `launchagent-schedule.sh set <plist> <label> <hour> <minute> <weekday|->` → `{"ok":true}` or `{"ok":false,"error":"…"}`.
+  - JS helpers `WEEKDAYS`, `pad2(n)`, `humanSchedule(schedule)`.
+  - `AgentRow` gains local state `schedule`, `schedEditing`, `schedDraft`, `schedErr` and handlers `fetchSchedule`, `startSchedEdit`, `saveSched`.
+
+- [ ] **Step 1: Write the schedule helper script**
+
+Create `LaunchAgents.widget/launchagent-schedule.sh`:
+
+```bash
+#!/bin/bash
+# Read or edit a LaunchAgent's schedule for the Übersicht widget.
+# Stock tools only: plutil, /usr/libexec/PlistBuddy, launchctl, id, cp.
+#   get <plist>
+#   set <plist> <label> <hour> <minute> <weekday|->
+set -uo pipefail
+PB=/usr/libexec/PlistBuddy
+cmd="${1:-}"
+
+json_get() {
+    local plist="$1"
+    [ -r "$plist" ] || { printf '{"kind":"none","editable":false}'; return; }
+
+    local cal interval
+    cal=$(plutil -extract StartCalendarInterval json -o - "$plist" 2>/dev/null) || cal=""
+    interval=$(plutil -extract StartInterval raw -o - "$plist" 2>/dev/null) || interval=""
+
+    if [ -n "$cal" ]; then
+        if [ "${cal:0:1}" = "{" ]; then
+            local hour minute weekday
+            hour=$(plutil -extract StartCalendarInterval.Hour raw -o - "$plist" 2>/dev/null) || hour=""
+            minute=$(plutil -extract StartCalendarInterval.Minute raw -o - "$plist" 2>/dev/null) || minute=""
+            weekday=$(plutil -extract StartCalendarInterval.Weekday raw -o - "$plist" 2>/dev/null) || weekday=""
+            printf '{"kind":"calendar","editable":true,"hour":"%s","minute":"%s","weekday":"%s"}' \
+                "$hour" "$minute" "$weekday"
+        else
+            printf '{"kind":"calendar-multi","editable":false}'
+        fi
+    elif [ -n "$interval" ]; then
+        printf '{"kind":"interval","editable":false,"interval":"%s"}' "$interval"
+    else
+        printf '{"kind":"none","editable":false}'
+    fi
+}
+
+set_sched() {
+    local plist="$1" label="$2" hour="$3" minute="$4" weekday="$5"
+    [ -w "$plist" ] || { printf '{"ok":false,"error":"plist not writable"}'; return; }
+
+    # Only a single StartCalendarInterval dict is editable.
+    local cal
+    cal=$(plutil -extract StartCalendarInterval json -o - "$plist" 2>/dev/null) || cal=""
+    if [ "${cal:0:1}" != "{" ]; then
+        printf '{"ok":false,"error":"schedule is not a simple calendar entry"}'
+        return
+    fi
+
+    cp "$plist" "$plist.bak" || { printf '{"ok":false,"error":"backup failed"}'; return; }
+
+    if ! "$PB" -c "Set :StartCalendarInterval:Hour $hour" "$plist" 2>/dev/null; then
+        "$PB" -c "Add :StartCalendarInterval:Hour integer $hour" "$plist" 2>/dev/null
+    fi
+    if ! "$PB" -c "Set :StartCalendarInterval:Minute $minute" "$plist" 2>/dev/null; then
+        "$PB" -c "Add :StartCalendarInterval:Minute integer $minute" "$plist" 2>/dev/null
+    fi
+    if [ "$weekday" = "-" ]; then
+        "$PB" -c "Delete :StartCalendarInterval:Weekday" "$plist" 2>/dev/null || true
+    else
+        if ! "$PB" -c "Set :StartCalendarInterval:Weekday $weekday" "$plist" 2>/dev/null; then
+            "$PB" -c "Add :StartCalendarInterval:Weekday integer $weekday" "$plist" 2>/dev/null
+        fi
+    fi
+
+    # Reload so the new schedule takes effect now.
+    local uid
+    uid=$(id -u)
+    launchctl bootout "gui/$uid/$label" 2>/dev/null || true
+    if launchctl bootstrap "gui/$uid" "$plist" 2>/dev/null; then
+        printf '{"ok":true}'
+    else
+        printf '{"ok":false,"error":"plist updated but reload failed; backup at %s.bak"}' "$plist"
+    fi
+}
+
+case "$cmd" in
+    get) json_get "${2:-}" ;;
+    set) set_sched "${2:-}" "${3:-}" "${4:-}" "${5:-}" "${6:-}" ;;
+    *) printf '{"error":"usage: launchagent-schedule.sh get <plist> | set <plist> <label> <hour> <minute> <weekday|->"}' ;;
+esac
+```
+
+- [ ] **Step 2: Make it executable**
+
+Run: `chmod +x LaunchAgents.widget/launchagent-schedule.sh`
+
+- [ ] **Step 3: Write the failing schedule test**
+
+Create `test/schedule_test.sh`:
+
+```bash
+#!/bin/bash
+# Verify launchagent-schedule.sh get/set against a throwaway plist.
+set -euo pipefail
+cd "$(dirname "$0")/../LaunchAgents.widget"
+
+TMP=$(mktemp -d)
+PLIST="$TMP/com.test.schedwidget.plist"
+LABEL="com.test.schedwidget"
+trap 'launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true; rm -rf "$TMP"' EXIT
+
+cat > "$PLIST" <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>$LABEL</string>
+  <key>ProgramArguments</key><array><string>/usr/bin/true</string></array>
+  <key>StartCalendarInterval</key>
+  <dict><key>Hour</key><integer>8</integer><key>Minute</key><integer>0</integer></dict>
+</dict>
+</plist>
+EOF
+
+# get: should report an editable calendar schedule at 08:00
+got=$(./launchagent-schedule.sh get "$PLIST")
+echo "$got" | grep -q '"kind":"calendar"' || { echo "FAIL: kind not calendar: $got"; exit 1; }
+echo "$got" | grep -q '"editable":true' || { echo "FAIL: not editable: $got"; exit 1; }
+echo "$got" | grep -q '"hour":"8"' || { echo "FAIL: hour not 8: $got"; exit 1; }
+
+# set: change to Wed (weekday 3) 09:30
+./launchagent-schedule.sh set "$PLIST" "$LABEL" 9 30 3 >/dev/null
+h=$(plutil -extract StartCalendarInterval.Hour raw -o - "$PLIST")
+m=$(plutil -extract StartCalendarInterval.Minute raw -o - "$PLIST")
+w=$(plutil -extract StartCalendarInterval.Weekday raw -o - "$PLIST")
+[ "$h" = "9" ]  || { echo "FAIL: hour not updated (got $h)"; exit 1; }
+[ "$m" = "30" ] || { echo "FAIL: minute not updated (got $m)"; exit 1; }
+[ "$w" = "3" ]  || { echo "FAIL: weekday not updated (got $w)"; exit 1; }
+[ -f "$PLIST.bak" ] || { echo "FAIL: backup not created"; exit 1; }
+
+# set weekday back to daily ("-") should remove Weekday
+./launchagent-schedule.sh set "$PLIST" "$LABEL" 7 15 - >/dev/null
+if plutil -extract StartCalendarInterval.Weekday raw -o - "$PLIST" >/dev/null 2>&1; then
+    echo "FAIL: weekday not removed for daily"; exit 1
+fi
+
+echo "PASS: schedule get/set behave correctly"
+```
+
+- [ ] **Step 4: Run the schedule test**
+
+Run: `chmod +x test/schedule_test.sh && ./test/schedule_test.sh`
+Expected: `PASS: schedule get/set behave correctly`. The test loads then boots out a harmless throwaway agent (`/usr/bin/true`) in your gui domain and cleans up on exit. If `set` reports a reload failure it's fine for the test (the assertions check the plist mutation, not the reload).
+
+- [ ] **Step 5: Run shellcheck**
+
+Run: `shellcheck LaunchAgents.widget/launchagent-schedule.sh test/schedule_test.sh`
+Expected: clean.
+
+- [ ] **Step 6: Add the JS schedule helpers to `index.jsx`**
+
+Immediately after the `dotClassFor` definition (before `const sleep = …`), add:
+
+```jsx
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const pad2 = (n) => String(n).padStart(2, "0");
+
+// Format the schedule JSON from launchagent-schedule.sh for display.
+const humanSchedule = (s) => {
+  if (!s) return "…";
+  if (s.kind === "calendar") {
+    const hasH = s.hour !== "" && s.hour != null;
+    const hasM = s.minute !== "" && s.minute != null;
+    const h = hasH ? parseInt(s.hour, 10) : 0;
+    const m = hasM ? parseInt(s.minute, 10) : 0;
+    if (!hasH && hasM) return "Hourly at :" + pad2(m);
+    const at = pad2(h) + ":" + pad2(m);
+    if (s.weekday === "" || s.weekday == null) return "Daily at " + at;
+    return WEEKDAYS[parseInt(s.weekday, 10) % 7] + " at " + at;
+  }
+  if (s.kind === "calendar-multi") return "Multiple times (edit plist)";
+  if (s.kind === "interval") {
+    const secs = parseInt(s.interval, 10) || 0;
+    return secs % 60 === 0 ? "Every " + secs / 60 + " min" : "Every " + secs + "s";
+  }
+  return "No schedule (triggered)";
+};
+```
+
+- [ ] **Step 7: Add schedule state and handlers to `AgentRow`**
+
+In `AgentRow`, after the existing rename state (`const [draft, setDraft] = React.useState("");`), add:
+
+```jsx
+  const [schedule, setSchedule] = React.useState(null);
+  const [schedEditing, setSchedEditing] = React.useState(false);
+  const [schedDraft, setSchedDraft] = React.useState({
+    hour: "0",
+    minute: "0",
+    weekday: "-",
+  });
+  const [schedErr, setSchedErr] = React.useState("");
+
+  const fetchSchedule = async () => {
+    if (!a.plist) {
+      setSchedule({ kind: "none", editable: false });
+      return;
+    }
+    try {
+      const raw = await run(
+        "./launchagent-schedule.sh get '" +
+          a.plist.replace(/'/g, "'\\''") +
+          "'"
+      );
+      setSchedule(JSON.parse(raw));
+    } catch (e) {
+      setSchedule({ kind: "none", editable: false });
+    }
+  };
+
+  const startSchedEdit = () => {
+    setSchedDraft({
+      hour: schedule && schedule.hour !== "" ? String(schedule.hour) : "0",
+      minute: schedule && schedule.minute !== "" ? String(schedule.minute) : "0",
+      weekday:
+        schedule && schedule.weekday !== "" && schedule.weekday != null
+          ? String(parseInt(schedule.weekday, 10) % 7)
+          : "-",
+    });
+    setSchedErr("");
+    setSchedEditing(true);
+  };
+
+  const saveSched = async () => {
+    const h = Math.max(0, Math.min(23, parseInt(schedDraft.hour, 10) || 0));
+    const m = Math.max(0, Math.min(59, parseInt(schedDraft.minute, 10) || 0));
+    const cmd =
+      "./launchagent-schedule.sh set '" +
+      a.plist.replace(/'/g, "'\\''") +
+      "' '" +
+      a.label.replace(/'/g, "'\\''") +
+      "' " +
+      h +
+      " " +
+      m +
+      " " +
+      schedDraft.weekday;
+    try {
+      const res = JSON.parse(await run(cmd));
+      if (res.ok) {
+        setSchedEditing(false);
+        setSchedule(null);
+        await fetchSchedule();
+      } else {
+        setSchedErr(res.error || "edit failed");
+      }
+    } catch (e) {
+      setSchedErr("edit failed");
+    }
+  };
+```
+
+- [ ] **Step 8: Fetch the schedule when the menu opens**
+
+Replace the Task 3 `openMenu` handler:
+
+```jsx
+  const openMenu = (e) => {
+    e.preventDefault();
+    setMenuOpen(true);
+  };
+```
+
+with:
+
+```jsx
+  const openMenu = (e) => {
+    e.preventDefault();
+    setMenuOpen(true);
+    if (!schedule) fetchSchedule();
+  };
+```
+
+- [ ] **Step 9: Replace the menu block with rename + schedule UI**
+
+Replace the entire Task 3 menu block:
+
+```jsx
+        {menuOpen && !editing && (
+          <div className="name-menu">
+            <div className="edit-btn" onClick={startEdit}>
+              ✎ Edit name
+            </div>
+            {hasCustomName && (
+              <div className="edit-btn" onClick={resetName}>
+                Reset
+              </div>
+            )}
+            <div className="edit-btn" onClick={() => setMenuOpen(false)}>
+              Cancel
+            </div>
+          </div>
+        )}
+```
+
+with:
+
+```jsx
+        {menuOpen && !editing && (
+          <div className="name-menu-wrap">
+            <div className="name-menu">
+              <div className="edit-btn" onClick={startEdit}>
+                ✎ Edit name
+              </div>
+              {hasCustomName && (
+                <div className="edit-btn" onClick={resetName}>
+                  Reset
+                </div>
+              )}
+              <div
+                className="edit-btn"
+                onClick={() => {
+                  setMenuOpen(false);
+                  setSchedEditing(false);
+                }}
+              >
+                Cancel
+              </div>
+            </div>
+            <div className="sched-line">
+              <span className="sched-label">Schedule:</span>{" "}
+              {humanSchedule(schedule)}
+              {schedule && schedule.editable && !schedEditing && (
+                <span
+                  className="edit-btn sched-edit-btn"
+                  onClick={startSchedEdit}
+                >
+                  ✎ Edit schedule
+                </span>
+              )}
+            </div>
+            {schedEditing && (
+              <div className="sched-edit">
+                <input
+                  className="sched-num"
+                  type="number"
+                  min="0"
+                  max="23"
+                  value={schedDraft.hour}
+                  onChange={(e) =>
+                    setSchedDraft({ ...schedDraft, hour: e.target.value })
+                  }
+                />
+                <span className="sched-colon">:</span>
+                <input
+                  className="sched-num"
+                  type="number"
+                  min="0"
+                  max="59"
+                  value={schedDraft.minute}
+                  onChange={(e) =>
+                    setSchedDraft({ ...schedDraft, minute: e.target.value })
+                  }
+                />
+                <select
+                  className="sched-select"
+                  value={schedDraft.weekday}
+                  onChange={(e) =>
+                    setSchedDraft({ ...schedDraft, weekday: e.target.value })
+                  }
+                >
+                  <option value="-">Every day</option>
+                  <option value="0">Sun</option>
+                  <option value="1">Mon</option>
+                  <option value="2">Tue</option>
+                  <option value="3">Wed</option>
+                  <option value="4">Thu</option>
+                  <option value="5">Fri</option>
+                  <option value="6">Sat</option>
+                </select>
+                <span className="edit-btn" onClick={saveSched}>
+                  Save
+                </span>
+                <span
+                  className="edit-btn"
+                  onClick={() => setSchedEditing(false)}
+                >
+                  Cancel
+                </span>
+              </div>
+            )}
+            {schedErr && <div className="sched-err">{schedErr}</div>}
+          </div>
+        )}
+```
+
+- [ ] **Step 10: Run the transpile test**
+
+Run: `./test/transpile_test.sh`
+Expected: `PASS: index.jsx transpiled cleanly`. Fix any reported SyntaxError.
+
+- [ ] **Step 11: Live-load and verify schedule view/edit**
+
+```bash
+rm -rf "$HOME/Library/Application Support/Übersicht/widgets/LaunchAgents.widget"
+cp -R LaunchAgents.widget "$HOME/Library/Application Support/Übersicht/widgets/"
+```
+
+Verify by hand:
+- Right-click `com.john.brew-autoupdate` → menu shows `Schedule: Daily at 08:00` and an "✎ Edit schedule" link.
+- Click "✎ Edit schedule" → hour/minute/weekday controls appear prefilled; change to e.g. 06:45 Wed → Save → the line updates to `Wed at 06:45`; confirm out-of-band with `plutil -extract StartCalendarInterval.Hour raw -o - ~/Library/LaunchAgents/com.john.brew-autoupdate.plist` and that `…brew-autoupdate.plist.bak` was created. Then set it back to Daily 08:00 via the widget.
+- Confirm an agent with no `StartCalendarInterval` shows a read-only schedule line (no "Edit schedule" link).
+
+- [ ] **Step 12: Commit**
+
+```bash
+git add LaunchAgents.widget/launchagent-schedule.sh test/schedule_test.sh LaunchAgents.widget/index.jsx
+git commit -m "feat: view and edit LaunchAgent calendar schedules from the widget"
+```
+
+---
+
+### Task 5: Single-display (menu-bar screen) mode
 
 Add `CONFIG.mainScreenOnly` handling: when enabled, render nothing on non-main displays.
 
@@ -922,7 +1388,7 @@ git commit -m "feat: optional single-display (menu-bar screen) mode"
 
 ---
 
-### Task 5: Gallery packaging (manifest, build, docs, license, screenshot)
+### Task 6: Gallery packaging (manifest, build, docs, license, screenshot)
 
 Add everything needed to submit to the Übersicht gallery and for others to understand the widget.
 
@@ -934,7 +1400,7 @@ Add everything needed to submit to the Übersicht gallery and for others to unde
 - Create: `screenshot.png` (captured, not authored)
 
 **Interfaces:**
-- Consumes: `LaunchAgents.widget/` (Tasks 1-4).
+- Consumes: `LaunchAgents.widget/` (Tasks 1-5).
 - Produces: `LaunchAgents.widget.zip` (via `build.sh`) suitable for a gallery submission issue.
 
 - [ ] **Step 1: Create `widget.json`**
@@ -942,7 +1408,7 @@ Add everything needed to submit to the Übersicht gallery and for others to unde
 ```json
 {
   "name": "LaunchAgents",
-  "description": "Dashboard for your macOS LaunchAgents: per-agent status dots, last-run time, and one-click Run/open-Log. Auto-discovers every agent in ~/Library/LaunchAgents. Right-click to rename; optional single-display mode.",
+  "description": "Dashboard for your macOS LaunchAgents: per-agent status dots, last-run time, and one-click Run/open-Log. Auto-discovers every agent in ~/Library/LaunchAgents. Right-click to rename or view/edit an agent's schedule; optional single-display mode.",
   "author": "John Bednarczyk",
   "email": "john.bednarczyk@singlewire.com"
 }
@@ -1034,6 +1500,17 @@ Right-click an agent's name → **✎ Edit name** → type a friendly name → E
 Right-click again for **Reset** to restore the raw label. Names are stored
 locally (in the widget's `localStorage`).
 
+## Viewing / editing an agent's schedule
+
+Right-click an agent to see when it runs (e.g. "Daily at 08:00"). For agents
+with a simple calendar schedule (a single `StartCalendarInterval`), an
+**✎ Edit schedule** control lets you change the hour, minute, and weekday.
+Saving **rewrites the agent's `.plist`** (a `.plist.bak` backup is written
+first) and reloads the agent with `launchctl bootout` + `bootstrap` so the
+change takes effect immediately — note this will run the job right away if it
+has `RunAtLoad`. Agents with interval schedules, multiple triggers, or no
+schedule are shown read-only; edit those plists directly.
+
 ## Configuration
 
 Edit the `CONFIG` block at the top of `LaunchAgents.widget/index.jsx`:
@@ -1061,7 +1538,7 @@ MIT — see [LICENSE](LICENSE).
 
 - [ ] **Step 6: Capture the screenshot**
 
-With the widget live (from Task 4's install), take a screenshot of just the widget (⌘⇧4, then Space, click the widget) and save it, then resize to the gallery size:
+With the widget live (from Task 5's install), take a screenshot of just the widget (⌘⇧4, then Space, click the widget) and save it, then resize to the gallery size:
 
 ```bash
 # Move your captured file to ./screenshot-raw.png first, then:
@@ -1085,9 +1562,9 @@ These are performed by the user, not the implementing agent:
 
 ---
 
-### Task 6: Migrate the personal machine to the packaged widget
+### Task 7: Migrate the personal machine to the packaged widget
 
-Switch the personal setup over to the packaged widget with `mainScreenOnly: true`, retiring the old `launchagents.jsx`. Do this only after Tasks 1-5 verify clean.
+Switch the personal setup over to the packaged widget with `mainScreenOnly: true`, retiring the old `launchagents.jsx`. Do this only after Tasks 1-6 verify clean.
 
 **Files:**
 - Install: `~/Library/Application Support/Übersicht/widgets/LaunchAgents.widget/` (copy of repo widget)
@@ -1148,19 +1625,21 @@ rm "$HOME/Library/Application Support/Übersicht/widgets/launchagents.jsx.bak"
 ## Self-Review
 
 **Spec coverage:**
-- Distribution model (own repo, gallery issue submission, zero-setup) → Tasks 5 (packaging) + 5.8 (submit). ✓
-- Package layout → Tasks 1, 2, 5. ✓
-- Relative `./launchagent-status.sh`, no hardcoded paths → Task 2 (STATUS_CMD) + Task 2.4 live check. ✓
+- Distribution model (own repo, gallery issue submission, zero-setup) → Task 6 (packaging) + 6.8 (submit). ✓
+- Package layout → Tasks 1, 2, 4, 6. ✓
+- Relative `./launchagent-status.sh` / `./launchagent-schedule.sh`, no hardcoded paths → Task 2 (STATUS_CMD) + Task 4 (schedule cmds) + Task 2.4 live check. ✓
+- `plist` field added to status JSON → Task 1. ✓
 - `DISPLAY_NAMES` removed → Task 2 (name = label) + Task 3 (interactive rename replaces it). ✓
 - `CONFIG` block (refreshMs, position, mainScreenOnly) → Task 2. ✓
 - Drag/lock retained → Task 2 (ported verbatim). ✓
 - Interactive rename with localStorage, right-click, Enter/Esc/blur, Reset → Task 3. ✓
-- Single-display mode + heuristic + shipped default false → Task 4. ✓
-- Data script bundled unchanged, executable → Task 1. ✓
-- Testing (JSON valid, shellcheck, Babel transpile, live load, single-display verify) → Tasks 1.4-1.6, 2.2-2.4, 3.5-3.6, 4.3-4.4. ✓
-- Migration of personal machine → Task 6. ✓
-- Gallery submission requirements (widget.json, zip, screenshot 258×160) → Task 5. ✓
+- View/edit schedule (get/set helper, human display, calendar-only edit, backup + reload, read-only for array/interval/none) → Task 4. ✓
+- Single-display mode + heuristic + shipped default false → Task 5. ✓
+- Data script bundled, executable → Task 1. ✓
+- Testing (JSON valid, shellcheck, Babel transpile, schedule get/set, live load, single-display verify) → Tasks 1.4-1.6, 2.2-2.4, 3.5-3.6, 4.3-4.5, 4.10-4.11, 5.3-5.4. ✓
+- Migration of personal machine → Task 7. ✓
+- Gallery submission requirements (widget.json, zip, screenshot 258×160) → Task 6. ✓
 
 **Placeholder scan:** No TBD/TODO; every code step has full content. Screenshot is a captured asset with exact `sips` commands, not a placeholder. ✓
 
-**Type consistency:** `onSetName(label, value)` defined in Task 3 `Widget.setName` and consumed by `AgentRow` with the same signature; `displayName` prop resolved as `names[a.label] || a.label` and used as `name` in the row; `isMainScreen()` boolean gate matches `CONFIG.mainScreenOnly`. CSS classes `.edit-btn/.name-edit/.name-input/.name-menu` are defined in Task 2's stylesheet and used in Task 3. ✓
+**Type consistency:** `onSetName(label, value)` defined in Task 3 `Widget.setName` and consumed by `AgentRow` with the same signature; `displayName` prop resolved as `names[a.label] || a.label` and used as `name` in the row; `isMainScreen()` boolean gate matches `CONFIG.mainScreenOnly`. Schedule JSON shape (`kind`/`editable`/`hour`/`minute`/`weekday`/`interval`) is produced by `launchagent-schedule.sh get` (Task 4 step 1) and consumed identically by `humanSchedule`, `startSchedEdit`, and the menu block (Task 4 steps 6-9); `set` arg order `<plist> <label> <hour> <minute> <weekday|->` matches `saveSched`'s command build. CSS classes `.edit-btn/.name-edit/.name-input/.name-menu` (Task 3) and `.name-menu-wrap/.sched-*` (Task 4) are all defined in Task 2's stylesheet. ✓
