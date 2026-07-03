@@ -30,6 +30,14 @@ uebersicht-launchagents/            # git repo (~/Projects/uebersicht-launchagen
 ├── LaunchAgents.widget/            # the distributable widget folder
 │   ├── index.jsx                   # widget (generalized from launchagents.jsx)
 │   └── launchagent-status.sh       # bundled data script, chmod +x
+├── examples/                       # sanitized example LaunchAgents (not in the zip)
+│   ├── README.md                   # how to adapt & install the examples
+│   ├── bin/
+│   │   ├── brew-autoupdate.sh
+│   │   └── trash-downloads-screenshots.sh
+│   └── launchagents/
+│       ├── com.example.brew-autoupdate.plist
+│       └── com.example.trash-screenshots.plist
 ├── widget.json                     # gallery manifest
 ├── screenshot.png                  # gallery screenshot (258×160 / 516×320)
 ├── build.sh                        # produces LaunchAgents.widget.zip for submission
@@ -37,6 +45,15 @@ uebersicht-launchagents/            # git repo (~/Projects/uebersicht-launchagen
 ├── LICENSE                         # MIT
 └── docs/superpowers/specs/…        # this spec
 ```
+
+## Example agents
+
+The repo ships sanitized copies of two real agents so new users have working templates (they are supplementary repo content, NOT part of the widget zip):
+
+- `com.example.brew-autoupdate` — daily `brew update/upgrade/cleanup` with network-wait, at 08:00.
+- `com.example.trash-screenshots` — moves week-old `Screenshot*.png` from `~/Downloads` to the Trash, at 09:00.
+
+Sanitization removes all personal info: the `com.john.*` labels become `com.example.*`, absolute `/Users/john.bednarczyk/…` paths in the plists become a clearly-marked `/Users/USERNAME/…` placeholder (with an inline comment and README instructions to replace it), and label references inside the scripts' exit-marker path and comments are updated to `com.example.*`. Both scripts already write their exit marker to `$HOME/Library/Logs/<label>.exit` and read nothing user-specific otherwise. The examples are wired to work with the widget out of the box once the user substitutes their path (matching labels/log paths so the status dots and Run/Log buttons work).
 
 ## Widget generalization (from the personal `launchagents.jsx`)
 
@@ -120,4 +137,5 @@ Once built and verified, replace the personal setup with the packaged widget:
 - Shipped `mainScreenOnly` default: `false`; personal install: `true`
 - Naming: interactive right-click rename (no static map)
 - Schedule: view any schedule; edit single-dict `StartCalendarInterval` only (assumed default while user was away — pending confirmation); apply via plist rewrite + `.plist.bak` backup + `launchctl bootout`/`bootstrap` reload
+- Package also includes sanitized example agents (`com.example.brew-autoupdate`, `com.example.trash-screenshots`) under `examples/` — revised from the earlier "just the widget" scope per user request
 - Personal machine migrated to the packaged widget when done

@@ -32,11 +32,15 @@ uebersicht-launchagents/
 │   ├── status_test.sh            # asserts the bundled script emits a JSON array (Task 1)
 │   ├── schedule_test.sh          # asserts schedule get/set against a throwaway plist (Task 4)
 │   └── transpile_test.sh         # asserts index.jsx transpiles with Übersicht's Babel (Task 2)
-├── widget.json                   # gallery manifest (Task 6)
-├── screenshot.png                # gallery screenshot (Task 6)
-├── build.sh                      # produces LaunchAgents.widget.zip (Task 6)
-├── README.md                     # docs (Task 6)
-├── LICENSE                       # MIT (Task 6)
+├── examples/                     # sanitized example agents (Task 6)
+│   ├── README.md
+│   ├── bin/{brew-autoupdate.sh,trash-downloads-screenshots.sh}
+│   └── launchagents/{com.example.brew-autoupdate.plist,com.example.trash-screenshots.plist}
+├── widget.json                   # gallery manifest (Task 7)
+├── screenshot.png                # gallery screenshot (Task 7)
+├── build.sh                      # produces LaunchAgents.widget.zip (Task 7)
+├── README.md                     # docs (Task 7)
+├── LICENSE                       # MIT (Task 7)
 ├── .gitignore                    # (Task 1)
 └── docs/superpowers/…            # spec + this plan (already committed)
 ```
@@ -1388,7 +1392,257 @@ git commit -m "feat: optional single-display (menu-bar screen) mode"
 
 ---
 
-### Task 6: Gallery packaging (manifest, build, docs, license, screenshot)
+### Task 6: Bundle sanitized example agents
+
+Ship the two personal agents as adaptable, de-personalized examples so new users have working templates. These are supplementary repo files (NOT part of the widget zip).
+
+**Files:**
+- Create: `examples/bin/brew-autoupdate.sh`
+- Create: `examples/bin/trash-downloads-screenshots.sh`
+- Create: `examples/launchagents/com.example.brew-autoupdate.plist`
+- Create: `examples/launchagents/com.example.trash-screenshots.plist`
+- Create: `examples/README.md`
+
+**Interfaces:**
+- Consumes: nothing (standalone example content).
+- Produces: example files whose labels (`com.example.*`) and `$HOME/Library/Logs/<label>.exit` / log paths line up with what `launchagent-status.sh` reads, so once a user adapts the path the widget shows them correctly.
+
+**Sanitization rule (applies to every file below):** no `com.john.*` labels, no `/Users/john.bednarczyk/…` paths, no other personal identifiers. Labels become `com.example.*`; absolute plist paths become `/Users/USERNAME/…` placeholders with an inline reminder comment.
+
+- [ ] **Step 1: Create `examples/bin/brew-autoupdate.sh`**
+
+```bash
+#!/bin/bash
+# Daily Homebrew update: refresh, upgrade formulae + casks (greedy), then clean up.
+# Invoked by the com.example.brew-autoupdate LaunchAgent at 08:00 daily.
+set -uo pipefail
+
+# Persist this run's exit code so the Übersicht status widget can color its dot
+# from the last ACTUAL run. launchctl's exit code is wiped on reboot; this file
+# is not, so the dot stays accurate across restarts.
+trap 'echo "$?" > "$HOME/Library/Logs/com.example.brew-autoupdate.exit"' EXIT
+
+export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:/usr/bin:/bin:/usr/sbin:/sbin"
+# Retry brew's own downloads to absorb transient network blips mid-run.
+export HOMEBREW_CURL_RETRIES=3
+BREW=/opt/homebrew/bin/brew
+
+# The LaunchAgent fires at 08:00, ~2 min after a scheduled 07:58 wake, so the
+# network (and VPN) is often not up yet -> curl EADDRNOTAVAIL. Wait for a live
+# connection before touching brew, up to ~90s, then proceed regardless.
+wait_for_network() {
+    local url="https://formulae.brew.sh" tries=0 max=30
+    until curl -sf --max-time 5 -o /dev/null "$url"; do
+        tries=$((tries + 1))
+        if [ "$tries" -ge "$max" ]; then
+            echo "network not ready after $((max * 3))s, proceeding anyway"
+            return 0
+        fi
+        sleep 3
+    done
+    [ "$tries" -gt 0 ] && echo "network ready after $((tries * 3))s"
+    return 0
+}
+
+# Prominent per-run header so days are easy to tell apart when scanning the log.
+banner() {
+    printf '\n===================================================================\n'
+    printf '  %s  |  %s\n' "$1" "$(date '+%A, %B %d %Y  %H:%M:%S')"
+    printf '===================================================================\n'
+}
+
+banner "brew autoupdate"
+
+wait_for_network
+
+rc=0
+"$BREW" update                 || rc=$?
+"$BREW" upgrade --greedy       || rc=$?   # formulae + casks, incl. auto-updating casks
+"$BREW" cleanup                || rc=$?
+
+echo "===== $(date '+%Y-%m-%d %H:%M:%S') brew autoupdate DONE (exit $rc) ====="
+exit $rc
+```
+
+- [ ] **Step 2: Create `examples/bin/trash-downloads-screenshots.sh`**
+
+```bash
+#!/bin/bash
+# Move macOS screenshot files older than a week from ~/Downloads to the Trash.
+# Invoked daily by the com.example.trash-screenshots LaunchAgent.
+set -euo pipefail
+
+# Persist this run's exit code so the Übersicht status widget can color its dot
+# from the last ACTUAL run. launchctl's exit code is wiped on reboot; this file
+# is not, so the dot stays accurate across restarts.
+trap 'echo "$?" > "$HOME/Library/Logs/com.example.trash-screenshots.exit"' EXIT
+
+DOWNLOADS="$HOME/Downloads"
+TRASH="$HOME/.Trash"
+
+# Prominent per-run header so days are easy to tell apart when scanning the log.
+banner() {
+    printf '\n===================================================================\n'
+    printf '  %s  |  %s\n' "$1" "$(date '+%A, %B %d %Y  %H:%M:%S')"
+    printf '===================================================================\n'
+}
+
+banner "trash screenshots"
+
+moved=0
+# Default macOS screenshot names start with "Screenshot " and end in .png.
+# -mtime +7 => last modified more than 7 days (over a week) ago.
+while IFS= read -r -d '' f; do
+    base="$(basename "$f")"
+    dest="$TRASH/$base"
+    # Avoid clobbering an existing item already in the Trash
+    if [ -e "$dest" ]; then
+        dest="$TRASH/${base%.png} $(date +%Y%m%d%H%M%S).png"
+    fi
+    mv "$f" "$dest"
+    moved=$((moved + 1))
+done < <(find "$DOWNLOADS" -maxdepth 1 -type f -name 'Screenshot*.png' -mtime +7 -print0)
+
+echo "$(date '+%Y-%m-%d %H:%M:%S'): moved $moved screenshot(s) older than a week from Downloads to Trash"
+```
+
+- [ ] **Step 3: Make the example scripts executable**
+
+Run: `chmod +x examples/bin/brew-autoupdate.sh examples/bin/trash-downloads-screenshots.sh`
+
+- [ ] **Step 4: Create `examples/launchagents/com.example.brew-autoupdate.plist`**
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.example.brew-autoupdate</string>
+
+    <!-- Replace /Users/USERNAME below with your own home path (run `echo $HOME`). -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/USERNAME/.local/bin/brew-autoupdate.sh</string>
+    </array>
+
+    <!-- Run every day at 08:00 (no Weekday key => daily) -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>8</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/Users/USERNAME/Library/Logs/brew-autoupdate.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/USERNAME/Library/Logs/brew-autoupdate.log</string>
+</dict>
+</plist>
+```
+
+- [ ] **Step 5: Create `examples/launchagents/com.example.trash-screenshots.plist`**
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.example.trash-screenshots</string>
+
+    <!-- Replace /Users/USERNAME below with your own home path (run `echo $HOME`). -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>/Users/USERNAME/.local/bin/trash-downloads-screenshots.sh</string>
+    </array>
+
+    <!-- Run every day at 09:00 (no Weekday key => daily) -->
+    <key>StartCalendarInterval</key>
+    <dict>
+        <key>Hour</key>
+        <integer>9</integer>
+        <key>Minute</key>
+        <integer>0</integer>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/Users/USERNAME/Library/Logs/trash-screenshots.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/USERNAME/Library/Logs/trash-screenshots.log</string>
+</dict>
+</plist>
+```
+
+- [ ] **Step 6: Create `examples/README.md`**
+
+```markdown
+# Example LaunchAgents
+
+Two ready-to-adapt agents that pair with the LaunchAgents widget. They are
+templates — you must point them at your own home path before installing.
+
+| Agent | What it does | Schedule |
+|-------|--------------|----------|
+| `com.example.brew-autoupdate` | `brew update` + `upgrade --greedy` + `cleanup` (waits for network first) | Daily 08:00 |
+| `com.example.trash-screenshots` | Moves `Screenshot*.png` older than 7 days from `~/Downloads` to the Trash | Daily 09:00 |
+
+## Install one
+
+1. Copy the script into your `~/.local/bin` (create it if needed) and make it
+   executable:
+
+   ```bash
+   mkdir -p ~/.local/bin
+   cp examples/bin/brew-autoupdate.sh ~/.local/bin/
+   chmod +x ~/.local/bin/brew-autoupdate.sh
+   ```
+
+2. Edit the matching plist and replace every `/Users/USERNAME` with your home
+   path (`echo $HOME`), then copy it into `~/Library/LaunchAgents/`:
+
+   ```bash
+   cp examples/launchagents/com.example.brew-autoupdate.plist ~/Library/LaunchAgents/
+   # edit the copy to set your path, then:
+   launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.example.brew-autoupdate.plist
+   ```
+
+3. The LaunchAgents widget will now show it, with Run/Log buttons and its
+   schedule.
+
+## Notes
+
+- `trash-screenshots` touches `~/Downloads`, a TCC-protected folder, so
+  `/bin/bash` needs **Full Disk Access** (System Settings → Privacy & Security
+  → Full Disk Access) for the scheduled run to succeed.
+- Each script writes its exit code to `~/Library/Logs/<label>.exit` so the
+  widget's status dot stays accurate across reboots.
+```
+
+- [ ] **Step 7: Verify sanitization and shellcheck**
+
+Run:
+```bash
+grep -rn "john\|bednarczyk" examples/ && echo "PERSONAL INFO FOUND — fix before commit" || echo "clean: no personal identifiers"
+shellcheck examples/bin/brew-autoupdate.sh examples/bin/trash-downloads-screenshots.sh
+plutil -lint examples/launchagents/*.plist
+```
+Expected: "clean: no personal identifiers"; shellcheck clean; both plists report "OK".
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add examples/
+git commit -m "feat: bundle sanitized example agents (brew-autoupdate, trash-screenshots)"
+```
+
+---
+
+### Task 7: Gallery packaging (manifest, build, docs, license, screenshot)
 
 Add everything needed to submit to the Übersicht gallery and for others to understand the widget.
 
@@ -1531,6 +1785,12 @@ The **Run** button uses `launchctl kickstart` and polls until the job leaves
 the `running` state and its run counter advances (kickstart returns
 immediately, so polling is the only reliable completion signal).
 
+## Example agents
+
+Don't have any LaunchAgents yet? The [`examples/`](examples/) folder has two
+ready-to-adapt agents (a daily Homebrew auto-update and a screenshot-tidier)
+with install instructions, so you have something for the widget to show.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
@@ -1562,9 +1822,9 @@ These are performed by the user, not the implementing agent:
 
 ---
 
-### Task 7: Migrate the personal machine to the packaged widget
+### Task 8: Migrate the personal machine to the packaged widget
 
-Switch the personal setup over to the packaged widget with `mainScreenOnly: true`, retiring the old `launchagents.jsx`. Do this only after Tasks 1-6 verify clean.
+Switch the personal setup over to the packaged widget with `mainScreenOnly: true`, retiring the old `launchagents.jsx`. Do this only after Tasks 1-7 verify clean.
 
 **Files:**
 - Install: `~/Library/Application Support/Übersicht/widgets/LaunchAgents.widget/` (copy of repo widget)
@@ -1625,8 +1885,9 @@ rm "$HOME/Library/Application Support/Übersicht/widgets/launchagents.jsx.bak"
 ## Self-Review
 
 **Spec coverage:**
-- Distribution model (own repo, gallery issue submission, zero-setup) → Task 6 (packaging) + 6.8 (submit). ✓
-- Package layout → Tasks 1, 2, 4, 6. ✓
+- Distribution model (own repo, gallery issue submission, zero-setup) → Task 7 (packaging) + 7.8 (submit). ✓
+- Package layout → Tasks 1, 2, 4, 6, 7. ✓
+- Sanitized example agents (no personal info, com.example.* labels, USERNAME placeholder, README) → Task 6 (+ step 7 sanitization check). ✓
 - Relative `./launchagent-status.sh` / `./launchagent-schedule.sh`, no hardcoded paths → Task 2 (STATUS_CMD) + Task 4 (schedule cmds) + Task 2.4 live check. ✓
 - `plist` field added to status JSON → Task 1. ✓
 - `DISPLAY_NAMES` removed → Task 2 (name = label) + Task 3 (interactive rename replaces it). ✓
@@ -1637,8 +1898,8 @@ rm "$HOME/Library/Application Support/Übersicht/widgets/launchagents.jsx.bak"
 - Single-display mode + heuristic + shipped default false → Task 5. ✓
 - Data script bundled, executable → Task 1. ✓
 - Testing (JSON valid, shellcheck, Babel transpile, schedule get/set, live load, single-display verify) → Tasks 1.4-1.6, 2.2-2.4, 3.5-3.6, 4.3-4.5, 4.10-4.11, 5.3-5.4. ✓
-- Migration of personal machine → Task 7. ✓
-- Gallery submission requirements (widget.json, zip, screenshot 258×160) → Task 6. ✓
+- Migration of personal machine → Task 8. ✓
+- Gallery submission requirements (widget.json, zip, screenshot 258×160) → Task 7. ✓
 
 **Placeholder scan:** No TBD/TODO; every code step has full content. Screenshot is a captured asset with exact `sips` commands, not a placeholder. ✓
 
