@@ -17,6 +17,18 @@ const CONFIG = {
 
 const STATUS_CMD = "./launchagent-status.sh";
 
+// The main (menu-bar) display sits at the global coordinate origin: its
+// available area starts at x=0 with only the menu bar / notch above it.
+// Other displays have a non-zero availLeft (left/right of main) or an
+// out-of-range availTop (above/below main). Heuristic, but reliable for
+// normal multi-monitor arrangements.
+const isMainScreen = () =>
+  typeof window !== "undefined" &&
+  !!window.screen &&
+  window.screen.availLeft === 0 &&
+  window.screen.availTop >= 0 &&
+  window.screen.availTop < 200;
+
 export const command = STATUS_CMD;
 export const refreshFrequency = CONFIG.refreshMs;
 
@@ -610,6 +622,11 @@ const Widget = ({ output }) => {
       return next;
     });
   };
+
+  // When restricted to the menu-bar display, render nothing elsewhere.
+  if (CONFIG.mainScreenOnly && !isMainScreen()) {
+    return <div ref={rootRef} />;
+  }
 
   let items = null;
   try {
