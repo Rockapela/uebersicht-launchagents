@@ -176,6 +176,30 @@ const dotClassFor = (a) => {
     : "idle";
 };
 
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const pad2 = (n) => String(n).padStart(2, "0");
+
+// Format the schedule JSON from launchagent-schedule.sh for display.
+const humanSchedule = (s) => {
+  if (!s) return "…";
+  if (s.kind === "calendar") {
+    const hasH = s.hour !== "" && s.hour != null;
+    const hasM = s.minute !== "" && s.minute != null;
+    const h = hasH ? parseInt(s.hour, 10) : 0;
+    const m = hasM ? parseInt(s.minute, 10) : 0;
+    if (!hasH && hasM) return "Hourly at :" + pad2(m);
+    const at = pad2(h) + ":" + pad2(m);
+    if (s.weekday === "" || s.weekday == null) return "Daily at " + at;
+    return WEEKDAYS[parseInt(s.weekday, 10) % 7] + " at " + at;
+  }
+  if (s.kind === "calendar-multi") return "Multiple times (edit plist)";
+  if (s.kind === "interval") {
+    const secs = parseInt(s.interval, 10) || 0;
+    return secs % 60 === 0 ? "Every " + secs / 60 + " min" : "Every " + secs + "s";
+  }
+  return "No schedule (triggered)";
+};
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // Fetch fresh status for a single agent from the status script.
@@ -216,6 +240,72 @@ const AgentRow = ({ a, displayName, onSetName }) => {
   const [menuOpen, setMenuOpen] = React.useState(false);
   const [editing, setEditing] = React.useState(false);
   const [draft, setDraft] = React.useState("");
+  const [schedule, setSchedule] = React.useState(null);
+  const [schedEditing, setSchedEditing] = React.useState(false);
+  const [schedDraft, setSchedDraft] = React.useState({
+    hour: "0",
+    minute: "0",
+    weekday: "-",
+  });
+  const [schedErr, setSchedErr] = React.useState("");
+
+  const fetchSchedule = async () => {
+    if (!a.plist) {
+      setSchedule({ kind: "none", editable: false });
+      return;
+    }
+    try {
+      const raw = await run(
+        "./launchagent-schedule.sh get '" +
+          a.plist.replace(/'/g, "'\\''") +
+          "'"
+      );
+      setSchedule(JSON.parse(raw));
+    } catch (e) {
+      setSchedule({ kind: "none", editable: false });
+    }
+  };
+
+  const startSchedEdit = () => {
+    setSchedDraft({
+      hour: schedule && schedule.hour !== "" ? String(schedule.hour) : "0",
+      minute: schedule && schedule.minute !== "" ? String(schedule.minute) : "0",
+      weekday:
+        schedule && schedule.weekday !== "" && schedule.weekday != null
+          ? String(parseInt(schedule.weekday, 10) % 7)
+          : "-",
+    });
+    setSchedErr("");
+    setSchedEditing(true);
+  };
+
+  const saveSched = async () => {
+    const h = Math.max(0, Math.min(23, parseInt(schedDraft.hour, 10) || 0));
+    const m = Math.max(0, Math.min(59, parseInt(schedDraft.minute, 10) || 0));
+    const cmd =
+      "./launchagent-schedule.sh set '" +
+      a.plist.replace(/'/g, "'\\''") +
+      "' '" +
+      a.label.replace(/'/g, "'\\''") +
+      "' " +
+      h +
+      " " +
+      m +
+      " " +
+      schedDraft.weekday;
+    try {
+      const res = JSON.parse(await run(cmd));
+      if (res.ok) {
+        setSchedEditing(false);
+        setSchedule(null);
+        await fetchSchedule();
+      } else {
+        setSchedErr(res.error || "edit failed");
+      }
+    } catch (e) {
+      setSchedErr("edit failed");
+    }
+  };
 
   // Once the 5-min live refresh reflects the manual run, drop the override.
   React.useEffect(() => {
@@ -260,6 +350,7 @@ const AgentRow = ({ a, displayName, onSetName }) => {
   const openMenu = (e) => {
     e.preventDefault();
     setMenuOpen(true);
+    if (!schedule) fetchSchedule();
   };
 
   const startEdit = () => {
@@ -316,18 +407,89 @@ const AgentRow = ({ a, displayName, onSetName }) => {
           </div>
         )}
         {menuOpen && !editing && (
-          <div className="name-menu">
-            <div className="edit-btn" onClick={startEdit}>
-              ✎ Edit name
+          <div className="name-menu-wrap">
+            <div className="name-menu">
+              <div className="edit-btn" onClick={startEdit}>
+                ✎ Edit name
+              </div>
+              {hasCustomName && (
+                <div className="edit-btn" onClick={resetName}>
+                  Reset
+                </div>
+              )}
+              <div
+                className="edit-btn"
+                onClick={() => {
+                  setMenuOpen(false);
+                  setSchedEditing(false);
+                }}
+              >
+                Cancel
+              </div>
             </div>
-            {hasCustomName && (
-              <div className="edit-btn" onClick={resetName}>
-                Reset
+            <div className="sched-line">
+              <span className="sched-label">Schedule:</span>{" "}
+              {humanSchedule(schedule)}
+              {schedule && schedule.editable && !schedEditing && (
+                <span
+                  className="edit-btn sched-edit-btn"
+                  onClick={startSchedEdit}
+                >
+                  ✎ Edit schedule
+                </span>
+              )}
+            </div>
+            {schedEditing && (
+              <div className="sched-edit">
+                <input
+                  className="sched-num"
+                  type="number"
+                  min="0"
+                  max="23"
+                  value={schedDraft.hour}
+                  onChange={(e) =>
+                    setSchedDraft({ ...schedDraft, hour: e.target.value })
+                  }
+                />
+                <span className="sched-colon">:</span>
+                <input
+                  className="sched-num"
+                  type="number"
+                  min="0"
+                  max="59"
+                  value={schedDraft.minute}
+                  onChange={(e) =>
+                    setSchedDraft({ ...schedDraft, minute: e.target.value })
+                  }
+                />
+                <select
+                  className="sched-select"
+                  value={schedDraft.weekday}
+                  onChange={(e) =>
+                    setSchedDraft({ ...schedDraft, weekday: e.target.value })
+                  }
+                >
+                  <option value="-">Every day</option>
+                  <option value="0">Sun</option>
+                  <option value="1">Mon</option>
+                  <option value="2">Tue</option>
+                  <option value="3">Wed</option>
+                  <option value="4">Thu</option>
+                  <option value="5">Fri</option>
+                  <option value="6">Sat</option>
+                </select>
+                <span className="edit-btn" onClick={saveSched}>
+                  Save
+                </span>
+                <span
+                  className="edit-btn"
+                  onClick={() => setSchedEditing(false)}
+                >
+                  Cancel
+                </span>
               </div>
             )}
-            <div className="edit-btn" onClick={() => setMenuOpen(false)}>
-              Cancel
-            </div>
+            {schedErr && <div className="sched-err">{schedErr}</div>}
           </div>
         )}
         <div className="meta">
