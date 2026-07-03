@@ -1,6 +1,5 @@
 {
   "name": "LaunchAgents",
   "description": "Dashboard for your macOS LaunchAgents: per-agent status dots, last-run time, and one-click Run/open-Log. Auto-discovers every agent in ~/Library/LaunchAgents. Right-click to rename or view/edit an agent's schedule; optional single-display mode.",
-  "author": "John Bednarczyk",
-  "email": "john.bednarczyk@singlewire.com"
+  "author": "John Bednarczyk"
 }
