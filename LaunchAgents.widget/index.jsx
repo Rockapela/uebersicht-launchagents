@@ -78,6 +78,7 @@ export const className = `
   }
   .lock-btn:hover { opacity: 0.95; background: rgba(255, 255, 255, 0.10); }
   .titlebar-actions { display: flex; align-items: center; gap: 2px; }
+  .refresh-btn { font-size: 15px; font-weight: 700; line-height: 1; }
   .refresh-btn.spinning { animation: spin 0.7s linear infinite; pointer-events: none; }
   .row {
     display: flex;
@@ -959,7 +960,7 @@ const Widget = ({ output }) => {
             onClick={refreshNow}
             title="Reload agents"
           >
-            🔄
+            ↻
           </div>
           <div
             className="lock-btn"
