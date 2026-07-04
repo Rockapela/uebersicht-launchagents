@@ -77,6 +77,8 @@ export const className = `
     transition: opacity 0.15s ease, background 0.15s ease;
   }
   .lock-btn:hover { opacity: 0.95; background: rgba(255, 255, 255, 0.10); }
+  .titlebar-actions { display: flex; align-items: center; gap: 2px; }
+  .refresh-btn.spinning { animation: spin 0.7s linear infinite; pointer-events: none; }
   .row {
     display: flex;
     align-items: center;
@@ -770,6 +772,28 @@ const Widget = ({ output }) => {
   // rather than waiting on the next 5-min status refresh to drop them.
   const [deletedLabels, setDeletedLabels] = React.useState(() => new Set());
 
+  // Manual-refresh override: freshly-fetched items shown when the user clicks
+  // the refresh button. Cleared whenever Übersicht delivers a new `output`, so
+  // the normal polling flow resumes on the next automatic refresh.
+  const [override, setOverride] = React.useState(null);
+  const [refreshing, setRefreshing] = React.useState(false);
+
+  React.useEffect(() => {
+    setOverride(null);
+  }, [output]);
+
+  const refreshNow = async (e) => {
+    if (e) e.stopPropagation();
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      setOverride(JSON.parse(await run(STATUS_CMD)));
+    } catch (err) {
+      // keep the current data on failure
+    }
+    setRefreshing(false);
+  };
+
   // Single modal slot, lifted here so its backdrop covers the whole widget:
   // { mode: "name", agent, currentName } or
   // { mode: "schedule", agent, schedule, error? } or
@@ -907,11 +931,15 @@ const Widget = ({ output }) => {
     return <div ref={rootRef} />;
   }
 
-  let items = null;
-  try {
-    items = JSON.parse(output);
-  } catch (e) {
-    items = null;
+  // Prefer a manual-refresh result if one is pending; otherwise parse the
+  // latest output Übersicht delivered.
+  let items = override;
+  if (items === null) {
+    try {
+      items = JSON.parse(output);
+    } catch (e) {
+      items = null;
+    }
   }
   // Hide agents removed via Delete right away, ahead of the next status
   // refresh (the agent is already gone from the plist/launchctl by then).
@@ -924,17 +952,27 @@ const Widget = ({ output }) => {
         onMouseDown={startDrag}
       >
         <div className="title">LaunchAgents</div>
-        <div
-          className="lock-btn"
-          onMouseDown={(e) => e.stopPropagation()}
-          onClick={toggleLock}
-          title={
-            locked
-              ? "Locked — click to unlock, then drag the title bar"
-              : "Unlocked — drag the title bar to move; click to lock"
-          }
-        >
-          {locked ? "🔒" : "🔓"}
+        <div className="titlebar-actions">
+          <div
+            className={"lock-btn refresh-btn" + (refreshing ? " spinning" : "")}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={refreshNow}
+            title="Reload agents"
+          >
+            🔄
+          </div>
+          <div
+            className="lock-btn"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={toggleLock}
+            title={
+              locked
+                ? "Locked — click to unlock, then drag the title bar"
+                : "Unlocked — drag the title bar to move; click to lock"
+            }
+          >
+            {locked ? "🔒" : "🔓"}
+          </div>
         </div>
       </div>
       {items === null && <div className="empty">…loading</div>}
