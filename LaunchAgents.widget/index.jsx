@@ -21,6 +21,7 @@ const CONFIG = {
 const WIDGET_DIR = "LaunchAgents.widget";
 const STATUS_CMD = "./" + WIDGET_DIR + "/launchagent-status.sh";
 const SCHEDULE_CMD = "./" + WIDGET_DIR + "/launchagent-schedule.sh";
+const DELETE_CMD = "./" + WIDGET_DIR + "/launchagent-delete.sh";
 
 // The main (menu-bar) display sits at the global coordinate origin: its
 // available area starts at x=0 with only the menu bar / notch above it.
@@ -148,6 +149,8 @@ export const className = `
     white-space: nowrap;
   }
   .popover-item:hover { background: rgba(255, 255, 255, 0.14); }
+  .popover-item.danger { color: #ff6b6b; }
+  .popover-item.danger:hover { background: rgba(255, 107, 107, 0.16); }
   .popover-line {
     font-size: 11px;
     opacity: 0.75;
@@ -185,6 +188,18 @@ export const className = `
     gap: 8px;
     margin-top: 12px;
   }
+  .modal-body { font-size: 12px; opacity: 0.85; line-height: 1.4; }
+  .btn-danger {
+    color: #fff;
+    background: rgba(255, 107, 107, 0.22);
+    border: 1px solid rgba(255, 107, 107, 0.55);
+  }
+  .btn-danger:hover {
+    background: rgba(255, 107, 107, 0.34);
+    border-color: rgba(255, 107, 107, 0.7);
+  }
+  .btn-danger:active { background: rgba(255, 107, 107, 0.44); }
+  .modal-err { font-size: 11px; color: #f5a3a3; margin-top: 8px; }
   .sched-edit { display: flex; align-items: center; gap: 5px; margin-top: 6px; flex-wrap: wrap; }
   .sched-num {
     width: 42px;
@@ -322,7 +337,14 @@ const runAndWait = async (label, runsBefore) => {
   return null;
 };
 
-const AgentRow = ({ a, displayName, onSetName, onEditName, onEditSchedule }) => {
+const AgentRow = ({
+  a,
+  displayName,
+  onSetName,
+  onEditName,
+  onEditSchedule,
+  onDelete,
+}) => {
   // null = show live data; "running" = spinner; {dotClass,lastrun,runs} = result
   const [manual, setManual] = React.useState(null);
   // Floating popover menu state, local to this row.
@@ -462,6 +484,15 @@ const AgentRow = ({ a, displayName, onSetName, onEditName, onEditSchedule }) => 
                   ↺ Reset name
                 </div>
               )}
+              <div
+                className="popover-item danger"
+                onClick={() => {
+                  closeMenu();
+                  onDelete(a, name);
+                }}
+              >
+                🗑 Delete
+              </div>
               <div className="popover-item" onClick={closeMenu}>
                 ✕ Cancel
               </div>
@@ -637,6 +668,41 @@ const ScheduleModal = ({ schedule, error, onSave, onCancel }) => {
   );
 };
 
+// Confirmation modal for permanently deleting an agent. Destructive, so it
+// gets its own red-accented Delete button rather than reusing `.edit-btn`.
+const DeleteModal = ({ displayName, error, onConfirm, onCancel }) => {
+  const onKeyDown = (e) => {
+    if (e.key === "Escape") onCancel();
+  };
+
+  return (
+    <div className="modal-backdrop" onClick={onCancel}>
+      <div
+        className="modal-panel"
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={onKeyDown}
+        tabIndex={-1}
+        autoFocus
+      >
+        <div className="modal-title">Delete agent</div>
+        <div className="modal-body">
+          Delete "{displayName}"? This unloads the agent and permanently
+          removes its .plist file. This cannot be undone.
+        </div>
+        {error && <div className="modal-err">{error}</div>}
+        <div className="modal-actions">
+          <div className="edit-btn" onClick={onCancel}>
+            Cancel
+          </div>
+          <div className="edit-btn btn-danger" onClick={onConfirm}>
+            Delete
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // localStorage keys for persisted position offset and lock state.
 const POS_KEY = "launchagents.pos";
 const LOCK_KEY = "launchagents.locked";
@@ -685,15 +751,22 @@ const Widget = ({ output }) => {
     });
   };
 
+  // Labels removed via the Delete action, hidden immediately (optimistic)
+  // rather than waiting on the next 5-min status refresh to drop them.
+  const [deletedLabels, setDeletedLabels] = React.useState(() => new Set());
+
   // Single modal slot, lifted here so its backdrop covers the whole widget:
   // { mode: "name", agent, currentName } or
-  // { mode: "schedule", agent, schedule, error? }
+  // { mode: "schedule", agent, schedule, error? } or
+  // { mode: "delete", agent, displayName, error? }
   const [modal, setModal] = React.useState(null);
   const closeModal = () => setModal(null);
   const openNameModal = (agent, currentName) =>
     setModal({ mode: "name", agent, currentName });
   const openScheduleModal = (agent, schedule) =>
     setModal({ mode: "schedule", agent, schedule });
+  const openDeleteModal = (agent, displayName) =>
+    setModal({ mode: "delete", agent, displayName });
 
   const saveName = (value) => {
     setName(modal.agent.label, value.trim());
@@ -733,6 +806,27 @@ const Widget = ({ output }) => {
       }
     } catch (e) {
       setModal((prev) => prev && { ...prev, error: "edit failed" });
+    }
+  };
+
+  const confirmDelete = async () => {
+    const agent = modal.agent;
+    const cmd =
+      DELETE_CMD + " '" +
+      agent.plist.replace(/'/g, "'\\''") +
+      "' '" +
+      agent.label.replace(/'/g, "'\\''") +
+      "'";
+    try {
+      const res = JSON.parse(await run(cmd));
+      if (res.ok) {
+        setDeletedLabels((prev) => new Set(prev).add(agent.label));
+        setModal(null);
+      } else {
+        setModal((prev) => prev && { ...prev, error: res.error || "delete failed" });
+      }
+    } catch (e) {
+      setModal((prev) => prev && { ...prev, error: "delete failed" });
     }
   };
 
@@ -804,6 +898,9 @@ const Widget = ({ output }) => {
   } catch (e) {
     items = null;
   }
+  // Hide agents removed via Delete right away, ahead of the next status
+  // refresh (the agent is already gone from the plist/launchctl by then).
+  if (items) items = items.filter((a) => !deletedLabels.has(a.label));
 
   return (
     <div ref={rootRef} style={{ position: "relative" }}>
@@ -838,6 +935,7 @@ const Widget = ({ output }) => {
             onSetName={setName}
             onEditName={openNameModal}
             onEditSchedule={openScheduleModal}
+            onDelete={openDeleteModal}
           />
         ))}
       {modal && modal.mode === "name" && (
@@ -852,6 +950,14 @@ const Widget = ({ output }) => {
           schedule={modal.schedule}
           error={modal.error}
           onSave={saveSchedule}
+          onCancel={closeModal}
+        />
+      )}
+      {modal && modal.mode === "delete" && (
+        <DeleteModal
+          displayName={modal.displayName}
+          error={modal.error}
+          onConfirm={confirmDelete}
           onCancel={closeModal}
         />
       )}
