@@ -109,29 +109,82 @@ export const className = `
     border-color: rgba(255, 255, 255, 0.14);
   }
   .label { font-size: 13px; font-weight: 600; word-break: break-all; line-height: 1.3; cursor: default; }
-  .name-edit {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    margin-top: 4px;
-  }
+  .name-anchor { position: relative; display: inline-block; max-width: 100%; }
   .name-input {
-    flex: 1;
-    min-width: 0;
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
     font-size: 12px;
     font-family: inherit;
     color: #fff;
     background: rgba(255, 255, 255, 0.10);
     border: 1px solid rgba(255, 255, 255, 0.28);
     border-radius: 6px;
-    padding: 3px 6px;
+    padding: 5px 7px;
     outline: none;
   }
-  .name-menu { display: flex; gap: 6px; margin-top: 5px; }
-  .name-menu-wrap { margin-top: 5px; }
-  .sched-line { font-size: 11px; opacity: 0.85; margin-top: 6px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
-  .sched-label { opacity: 0.6; }
-  .sched-edit-btn { margin-left: 2px; }
+  .popover {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    margin-top: 4px;
+    z-index: 50;
+    min-width: 180px;
+    background: rgba(28, 30, 38, 0.98);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 10px;
+    padding: 6px;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .popover-item {
+    cursor: pointer;
+    font-size: 12px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    color: rgba(255, 255, 255, 0.9);
+    white-space: nowrap;
+  }
+  .popover-item:hover { background: rgba(255, 255, 255, 0.14); }
+  .popover-line {
+    font-size: 11px;
+    opacity: 0.75;
+    padding: 6px 8px;
+    white-space: nowrap;
+  }
+  .modal-backdrop {
+    position: absolute;
+    inset: 0;
+    z-index: 100;
+    background: rgba(8, 9, 12, 0.72);
+    border-radius: 18px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .modal-panel {
+    width: 240px;
+    max-width: 88%;
+    background: rgba(30, 32, 40, 0.98);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    border-radius: 12px;
+    padding: 14px 16px;
+    box-shadow: 0 14px 40px rgba(0, 0, 0, 0.5);
+  }
+  .modal-title {
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    margin-bottom: 10px;
+  }
+  .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 12px;
+  }
   .sched-edit { display: flex; align-items: center; gap: 5px; margin-top: 6px; flex-wrap: wrap; }
   .sched-num {
     width: 42px;
@@ -250,21 +303,13 @@ const runAndWait = async (label, runsBefore) => {
   return null;
 };
 
-const AgentRow = ({ a, displayName, onSetName }) => {
+const AgentRow = ({ a, displayName, onSetName, onEditName, onEditSchedule }) => {
   // null = show live data; "running" = spinner; {dotClass,lastrun,runs} = result
   const [manual, setManual] = React.useState(null);
-  // Rename UI state, local to this row.
+  // Floating popover menu state, local to this row.
   const [menuOpen, setMenuOpen] = React.useState(false);
-  const [editing, setEditing] = React.useState(false);
-  const [draft, setDraft] = React.useState("");
   const [schedule, setSchedule] = React.useState(null);
-  const [schedEditing, setSchedEditing] = React.useState(false);
-  const [schedDraft, setSchedDraft] = React.useState({
-    hour: "0",
-    minute: "0",
-    weekday: "-",
-  });
-  const [schedErr, setSchedErr] = React.useState("");
+  const popoverRef = React.useRef(null);
 
   const fetchSchedule = async () => {
     if (!a.plist) {
@@ -283,46 +328,18 @@ const AgentRow = ({ a, displayName, onSetName }) => {
     }
   };
 
-  const startSchedEdit = () => {
-    setSchedDraft({
-      hour: schedule && schedule.hour !== "" ? String(schedule.hour) : "0",
-      minute: schedule && schedule.minute !== "" ? String(schedule.minute) : "0",
-      weekday:
-        schedule && schedule.weekday !== "" && schedule.weekday != null
-          ? String(parseInt(schedule.weekday, 10) % 7)
-          : "-",
-    });
-    setSchedErr("");
-    setSchedEditing(true);
-  };
-
-  const saveSched = async () => {
-    const h = Math.max(0, Math.min(23, parseInt(schedDraft.hour, 10) || 0));
-    const m = Math.max(0, Math.min(59, parseInt(schedDraft.minute, 10) || 0));
-    const cmd =
-      SCHEDULE_CMD + " set '" +
-      a.plist.replace(/'/g, "'\\''") +
-      "' '" +
-      a.label.replace(/'/g, "'\\''") +
-      "' " +
-      h +
-      " " +
-      m +
-      " " +
-      schedDraft.weekday;
-    try {
-      const res = JSON.parse(await run(cmd));
-      if (res.ok) {
-        setSchedEditing(false);
-        setSchedule(null);
-        await fetchSchedule();
-      } else {
-        setSchedErr(res.error || "edit failed");
+  // Close the popover on any click outside it, so it behaves like a normal
+  // floating menu rather than an inline expansion.
+  React.useEffect(() => {
+    if (!menuOpen) return;
+    const onDocClick = (e) => {
+      if (popoverRef.current && !popoverRef.current.contains(e.target)) {
+        setMenuOpen(false);
       }
-    } catch (e) {
-      setSchedErr("edit failed");
-    }
-  };
+    };
+    document.addEventListener("click", onDocClick);
+    return () => document.removeEventListener("click", onDocClick);
+  }, [menuOpen]);
 
   // Once the 5-min live refresh reflects the manual run, drop the override.
   React.useEffect(() => {
@@ -363,53 +380,20 @@ const AgentRow = ({ a, displayName, onSetName }) => {
     }
   };
 
-  // Right-click the name to reveal the rename menu.
+  // Right-click the name to reveal the floating popover menu. Always refetch
+  // the schedule so it reflects any edit made since the last time it opened.
   const openMenu = (e) => {
     e.preventDefault();
     setMenuOpen(true);
-    if (!schedule) fetchSchedule();
+    fetchSchedule();
   };
 
-  const startEdit = () => {
-    setDraft(name);
-    setEditing(true);
-    setMenuOpen(false);
-  };
-
-  const commitEdit = () => {
-    onSetName(a.label, draft.trim());
-    setEditing(false);
-  };
-
-  const cancelEdit = () => setEditing(false);
-
-  const resetName = () => {
-    onSetName(a.label, "");
-    setMenuOpen(false);
-  };
-
-  const onKeyDown = (e) => {
-    if (e.key === "Enter") commitEdit();
-    else if (e.key === "Escape") cancelEdit();
-  };
+  const closeMenu = () => setMenuOpen(false);
 
   return (
     <div className="row">
       <div className="rowmain">
-        {editing ? (
-          <div className="name-edit">
-            <span className={dotClass === "run" ? "spinner" : "dot " + dotClass} />
-            <input
-              className="name-input"
-              autoFocus
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={onKeyDown}
-              onBlur={cancelEdit}
-              placeholder={a.label}
-            />
-          </div>
-        ) : (
+        <div className="name-anchor">
           <div
             className="label"
             onContextMenu={openMenu}
@@ -422,93 +406,49 @@ const AgentRow = ({ a, displayName, onSetName }) => {
             )}
             {name}
           </div>
-        )}
-        {menuOpen && !editing && (
-          <div className="name-menu-wrap">
-            <div className="name-menu">
-              <div className="edit-btn" onClick={startEdit}>
-                ✎ Edit name
-              </div>
-              {hasCustomName && (
-                <div className="edit-btn" onClick={resetName}>
-                  Reset
-                </div>
-              )}
+          {menuOpen && (
+            <div className="popover" ref={popoverRef}>
               <div
-                className="edit-btn"
+                className="popover-item"
                 onClick={() => {
-                  setMenuOpen(false);
-                  setSchedEditing(false);
+                  closeMenu();
+                  onEditName(a, name);
                 }}
               >
-                Cancel
+                ✎ Edit name
               </div>
-            </div>
-            <div className="sched-line">
-              <span className="sched-label">Schedule:</span>{" "}
-              {humanSchedule(schedule)}
-              {schedule && schedule.editable && !schedEditing && (
-                <span
-                  className="edit-btn sched-edit-btn"
-                  onClick={startSchedEdit}
+              {schedule && schedule.editable ? (
+                <div
+                  className="popover-item"
+                  onClick={() => {
+                    closeMenu();
+                    onEditSchedule(a, schedule);
+                  }}
                 >
-                  ✎ Edit schedule
-                </span>
+                  🕐 Edit schedule
+                </div>
+              ) : (
+                <div className="popover-line">
+                  Schedule: {humanSchedule(schedule)}
+                </div>
               )}
-            </div>
-            {schedEditing && (
-              <div className="sched-edit">
-                <input
-                  className="sched-num"
-                  type="number"
-                  min="0"
-                  max="23"
-                  value={schedDraft.hour}
-                  onChange={(e) =>
-                    setSchedDraft({ ...schedDraft, hour: e.target.value })
-                  }
-                />
-                <span className="sched-colon">:</span>
-                <input
-                  className="sched-num"
-                  type="number"
-                  min="0"
-                  max="59"
-                  value={schedDraft.minute}
-                  onChange={(e) =>
-                    setSchedDraft({ ...schedDraft, minute: e.target.value })
-                  }
-                />
-                <select
-                  className="sched-select"
-                  value={schedDraft.weekday}
-                  onChange={(e) =>
-                    setSchedDraft({ ...schedDraft, weekday: e.target.value })
-                  }
+              {hasCustomName && (
+                <div
+                  className="popover-item"
+                  onClick={() => {
+                    closeMenu();
+                    onSetName(a.label, "");
+                  }}
                 >
-                  <option value="-">Every day</option>
-                  <option value="0">Sun</option>
-                  <option value="1">Mon</option>
-                  <option value="2">Tue</option>
-                  <option value="3">Wed</option>
-                  <option value="4">Thu</option>
-                  <option value="5">Fri</option>
-                  <option value="6">Sat</option>
-                </select>
-                <span className="edit-btn" onClick={saveSched}>
-                  Save
-                </span>
-                <span
-                  className="edit-btn"
-                  onClick={() => setSchedEditing(false)}
-                >
-                  Cancel
-                </span>
+                  ↺ Reset name
+                </div>
+              )}
+              <div className="popover-item" onClick={closeMenu}>
+                ✕ Cancel
               </div>
-            )}
-            {schedErr && <div className="sched-err">{schedErr}</div>}
-          </div>
-        )}
+            </div>
+          )}
+        </div>
         <div className="meta">
           {lastrun ? "last run: " + lastrun : "last run: unknown"}
         </div>
@@ -526,6 +466,123 @@ const AgentRow = ({ a, displayName, onSetName }) => {
             Log
           </div>
         )}
+      </div>
+    </div>
+  );
+};
+
+// Modal dialog for renaming an agent. Rendered by Widget so its dimmed
+// backdrop can cover the whole widget rather than just one row.
+const NameModal = ({ currentName, onSave, onCancel }) => {
+  const [draft, setDraft] = React.useState(currentName);
+
+  const onKeyDown = (e) => {
+    if (e.key === "Enter") onSave(draft);
+    else if (e.key === "Escape") onCancel();
+  };
+
+  return (
+    <div className="modal-backdrop" onClick={onCancel}>
+      <div
+        className="modal-panel"
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={onKeyDown}
+      >
+        <div className="modal-title">Rename</div>
+        <input
+          className="name-input"
+          autoFocus
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+        />
+        <div className="modal-actions">
+          <div className="edit-btn" onClick={onCancel}>
+            Cancel
+          </div>
+          <div className="edit-btn" onClick={() => onSave(draft)}>
+            Save
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Modal dialog for editing an agent's schedule. Rendered by Widget; `onSave`
+// receives the current draft, `error` (if set) is shown without closing.
+const ScheduleModal = ({ schedule, error, onSave, onCancel }) => {
+  const [draft, setDraft] = React.useState({
+    hour:
+      schedule && schedule.hour !== "" && schedule.hour != null
+        ? String(schedule.hour)
+        : "0",
+    minute:
+      schedule && schedule.minute !== "" && schedule.minute != null
+        ? String(schedule.minute)
+        : "0",
+    weekday:
+      schedule && schedule.weekday !== "" && schedule.weekday != null
+        ? String(parseInt(schedule.weekday, 10) % 7)
+        : "-",
+  });
+
+  const onKeyDown = (e) => {
+    if (e.key === "Enter") onSave(draft);
+    else if (e.key === "Escape") onCancel();
+  };
+
+  return (
+    <div className="modal-backdrop" onClick={onCancel}>
+      <div
+        className="modal-panel"
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={onKeyDown}
+      >
+        <div className="modal-title">Schedule</div>
+        <div className="popover-line">{humanSchedule(schedule)}</div>
+        <div className="sched-edit">
+          <input
+            className="sched-num"
+            type="number"
+            min="0"
+            max="23"
+            autoFocus
+            value={draft.hour}
+            onChange={(e) => setDraft({ ...draft, hour: e.target.value })}
+          />
+          <span className="sched-colon">:</span>
+          <input
+            className="sched-num"
+            type="number"
+            min="0"
+            max="59"
+            value={draft.minute}
+            onChange={(e) => setDraft({ ...draft, minute: e.target.value })}
+          />
+          <select
+            className="sched-select"
+            value={draft.weekday}
+            onChange={(e) => setDraft({ ...draft, weekday: e.target.value })}
+          >
+            <option value="-">Every day</option>
+            <option value="0">Sun</option>
+            <option value="1">Mon</option>
+            <option value="2">Tue</option>
+            <option value="3">Wed</option>
+            <option value="4">Thu</option>
+            <option value="5">Fri</option>
+            <option value="6">Sat</option>
+          </select>
+        </div>
+        {error && <div className="sched-err">{error}</div>}
+        <div className="modal-actions">
+          <div className="edit-btn" onClick={onCancel}>
+            Cancel
+          </div>
+          <div className="edit-btn" onClick={() => onSave(draft)}>
+            Save
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -579,11 +636,61 @@ const Widget = ({ output }) => {
     });
   };
 
+  // Single modal slot, lifted here so its backdrop covers the whole widget:
+  // { mode: "name", agent, currentName } or
+  // { mode: "schedule", agent, schedule, error? }
+  const [modal, setModal] = React.useState(null);
+  const closeModal = () => setModal(null);
+  const openNameModal = (agent, currentName) =>
+    setModal({ mode: "name", agent, currentName });
+  const openScheduleModal = (agent, schedule) =>
+    setModal({ mode: "schedule", agent, schedule });
+
+  const saveName = (value) => {
+    setName(modal.agent.label, value.trim());
+    setModal(null);
+  };
+
+  const saveSchedule = async (draft) => {
+    const agent = modal.agent;
+    const h = Math.max(0, Math.min(23, parseInt(draft.hour, 10) || 0));
+    const m = Math.max(0, Math.min(59, parseInt(draft.minute, 10) || 0));
+    const cmd =
+      SCHEDULE_CMD + " set '" +
+      agent.plist.replace(/'/g, "'\\''") +
+      "' '" +
+      agent.label.replace(/'/g, "'\\''") +
+      "' " +
+      h +
+      " " +
+      m +
+      " " +
+      draft.weekday;
+    try {
+      const res = JSON.parse(await run(cmd));
+      if (res.ok) {
+        setModal(null);
+      } else {
+        setModal((prev) => prev && { ...prev, error: res.error || "edit failed" });
+      }
+    } catch (e) {
+      setModal((prev) => prev && { ...prev, error: "edit failed" });
+    }
+  };
+
   // Reassert the offset on the container every render, in case Übersicht
   // recreates the container element on a refresh.
   React.useEffect(() => {
     const container = rootRef.current && rootRef.current.parentElement;
     if (!container) return;
+    // In single-display mode, hide the whole container on non-main displays.
+    // Übersicht styles the wrapper element (background/border/padding), so an
+    // empty render still shows a styled shell — hiding the container removes it.
+    if (CONFIG.mainScreenOnly && !isMainScreen()) {
+      container.style.display = "none";
+      return;
+    }
+    container.style.display = "";
     if (pos.x || pos.y) {
       container.style.transform = "translate(" + pos.x + "px, " + pos.y + "px)";
     } else {
@@ -641,7 +748,7 @@ const Widget = ({ output }) => {
   }
 
   return (
-    <div ref={rootRef}>
+    <div ref={rootRef} style={{ position: "relative" }}>
       <div
         className={"titlebar" + (locked ? "" : " movable")}
         onMouseDown={startDrag}
@@ -671,8 +778,25 @@ const Widget = ({ output }) => {
             key={a.label}
             displayName={names[a.label] || a.label}
             onSetName={setName}
+            onEditName={openNameModal}
+            onEditSchedule={openScheduleModal}
           />
         ))}
+      {modal && modal.mode === "name" && (
+        <NameModal
+          currentName={modal.currentName}
+          onSave={saveName}
+          onCancel={closeModal}
+        />
+      )}
+      {modal && modal.mode === "schedule" && (
+        <ScheduleModal
+          schedule={modal.schedule}
+          error={modal.error}
+          onSave={saveSchedule}
+          onCancel={closeModal}
+        />
+      )}
     </div>
   );
 };
