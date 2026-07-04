@@ -406,6 +406,10 @@ const AgentRow = ({
   const openLog = () =>
     run("open '" + a.logpath.replace(/'/g, "'\\''") + "'");
 
+  // Reveal the agent's .plist in Finder (opens its folder with it selected).
+  const revealInFinder = () =>
+    run("open -R '" + a.plist.replace(/'/g, "'\\''") + "'");
+
   const runNow = async () => {
     if (running) return;
     setManual("running");
@@ -471,6 +475,17 @@ const AgentRow = ({
               ) : (
                 <div className="popover-line">
                   Schedule: {humanSchedule(schedule)}
+                </div>
+              )}
+              {a.plist && (
+                <div
+                  className="popover-item"
+                  onClick={() => {
+                    closeMenu();
+                    revealInFinder();
+                  }}
+                >
+                  📂 Reveal in Finder
                 </div>
               )}
               {hasCustomName && (
