@@ -30,6 +30,31 @@ Then refresh Übersicht (menu-bar icon → Refresh All Widgets).
 Requires [Übersicht](https://tracesof.net/uebersicht/). Uses only stock macOS
 tools — no build step, no dependencies.
 
+## Updating
+
+Übersicht widgets don't auto-update — an installed widget is just a copy in your
+widgets folder. To pull in a newer version:
+
+**If you installed from source**, `git pull` in the repo and run the bundled
+helper, which copies the widget into place and refreshes Übersicht:
+
+```bash
+git pull
+./update.sh
+```
+
+`update.sh` preserves your `mainScreenOnly` setting; other `CONFIG` edits in
+`index.jsx` are reset to the shipped defaults on update. Your custom agent names,
+widget position, and lock state are stored separately (in `localStorage`) and are
+kept across updates.
+
+**If you installed from the gallery**, re-download the latest zip and replace the
+`LaunchAgents.widget` folder in your widgets directory, then refresh Übersicht.
+
+For zero-step updates, symlink the repo's widget into place instead of copying
+(`ln -s "$PWD/LaunchAgents.widget" ~/Library/Application\ Support/Übersicht/widgets/`)
+— then a `git pull` updates the live widget directly.
+
 ## Renaming an agent
 
 Right-click an agent's name → **✎ Edit name** → type a friendly name → Enter.
