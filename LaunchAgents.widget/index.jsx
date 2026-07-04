@@ -445,7 +445,7 @@ const AgentRow = ({
           <div
             className="label"
             onContextMenu={openMenu}
-            title="Right-click to rename"
+            title={a.comment || "Right-click to see options"}
           >
             {dotClass === "run" ? (
               <span className="spinner" />

@@ -55,6 +55,23 @@ For zero-step updates, symlink the repo's widget into place instead of copying
 (`ln -s "$PWD/LaunchAgents.widget" ~/Library/Application\ Support/Übersicht/widgets/`)
 — then a `git pull` updates the live widget directly.
 
+## Describing an agent
+
+Hovering an agent's name shows a description if the agent's `.plist` has an
+XML comment above the opening `<dict>`:
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<!-- Cleans Xcode caches and derived data nightly. -->
+<dict>
+    ...
+```
+
+The first comment before `<dict>` is used; comments inside the dict are
+ignored. See `examples/launchagents/` for plists with descriptions.
+
 ## Renaming an agent
 
 Right-click an agent's name → **✎ Edit name** → type a friendly name → Enter.

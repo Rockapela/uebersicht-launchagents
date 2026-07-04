@@ -15,6 +15,25 @@ for plist in "$AGENT_DIR"/*.plist; do
     label=$("$PB" -c "Print :Label" "$plist" 2>/dev/null) || label=""
     [ -n "$label" ] || continue
 
+    # A description for the agent may live in an XML comment at the top of the
+    # plist (anywhere before the opening <dict>). First comment wins; comments
+    # inside the dict are ignored.
+    comment=$(awk '
+        /<dict>/ { exit }
+        { buf = buf $0 " " }
+        END {
+            s = index(buf, "<!--"); if (!s) exit
+            rest = substr(buf, s + 4)
+            e = index(rest, "-->"); if (!e) exit
+            c = substr(rest, 1, e - 1)
+            gsub(/[[:space:]]+/, " ", c)
+            gsub(/^ +| +$/, "", c)
+            print c
+        }
+    ' "$plist" 2>/dev/null) || comment=""
+    comment=${comment//\\/\\\\}
+    comment=${comment//\"/\\\"}
+
     info=$(launchctl print "gui/$UID_NUM/$label" 2>/dev/null) || info=""
     if [ -n "$info" ]; then
         loaded="yes"
@@ -49,7 +68,7 @@ for plist in "$AGENT_DIR"/*.plist; do
 
     [ $first -eq 1 ] || printf ','
     first=0
-    printf '{"label":"%s","loaded":"%s","state":"%s","runs":"%s","exit":"%s","lastrun":"%s","logpath":"%s","plist":"%s"}' \
-        "$label" "$loaded" "${state:-}" "${runs:-}" "${exitc:-}" "${lastrun:-}" "${haslog:-}" "$plist"
+    printf '{"label":"%s","loaded":"%s","state":"%s","runs":"%s","exit":"%s","lastrun":"%s","logpath":"%s","plist":"%s","comment":"%s"}' \
+        "$label" "$loaded" "${state:-}" "${runs:-}" "${exitc:-}" "${lastrun:-}" "${haslog:-}" "$plist" "${comment:-}"
 done
 printf ']'
