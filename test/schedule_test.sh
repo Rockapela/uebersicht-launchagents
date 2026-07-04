@@ -28,7 +28,7 @@ echo "$got" | grep -q '"editable":true' || { echo "FAIL: not editable: $got"; ex
 echo "$got" | grep -q '"hour":"8"' || { echo "FAIL: hour not 8: $got"; exit 1; }
 
 # set: change to Wed (weekday 3) 09:30
-./launchagent-schedule.sh set "$PLIST" "$LABEL" 9 30 3 >/dev/null
+./launchagent-schedule.sh set "$PLIST" "$LABEL" 9 30 3 - >/dev/null
 h=$(plutil -extract StartCalendarInterval.Hour raw -o - "$PLIST")
 m=$(plutil -extract StartCalendarInterval.Minute raw -o - "$PLIST")
 w=$(plutil -extract StartCalendarInterval.Weekday raw -o - "$PLIST")
@@ -38,9 +38,29 @@ w=$(plutil -extract StartCalendarInterval.Weekday raw -o - "$PLIST")
 [ -f "$PLIST.bak" ] || { echo "FAIL: backup not created"; exit 1; }
 
 # set weekday back to daily ("-") should remove Weekday
-./launchagent-schedule.sh set "$PLIST" "$LABEL" 7 15 - >/dev/null
+./launchagent-schedule.sh set "$PLIST" "$LABEL" 7 15 - - >/dev/null
 if plutil -extract StartCalendarInterval.Weekday raw -o - "$PLIST" >/dev/null 2>&1; then
     echo "FAIL: weekday not removed for daily"; exit 1
+fi
+
+# set: monthly on the 15th at 06:00, no weekday
+./launchagent-schedule.sh set "$PLIST" "$LABEL" 6 0 - 15 >/dev/null
+d=$(plutil -extract StartCalendarInterval.Day raw -o - "$PLIST")
+[ "$d" = "15" ] || { echo "FAIL: day not updated (got $d)"; exit 1; }
+if plutil -extract StartCalendarInterval.Weekday raw -o - "$PLIST" >/dev/null 2>&1; then
+    echo "FAIL: weekday not removed for monthly"; exit 1
+fi
+
+# get: should now report the monthly day
+got=$(./launchagent-schedule.sh get "$PLIST")
+echo "$got" | grep -q '"day":"15"' || { echo "FAIL: get did not report day 15: $got"; exit 1; }
+
+# set: switch back to weekly (weekday 3), should remove Day
+./launchagent-schedule.sh set "$PLIST" "$LABEL" 9 30 3 - >/dev/null
+w=$(plutil -extract StartCalendarInterval.Weekday raw -o - "$PLIST")
+[ "$w" = "3" ] || { echo "FAIL: weekday not updated on monthly->weekly switch (got $w)"; exit 1; }
+if plutil -extract StartCalendarInterval.Day raw -o - "$PLIST" >/dev/null 2>&1; then
+    echo "FAIL: day not removed for weekly"; exit 1
 fi
 
 echo "PASS: schedule get/set behave correctly"

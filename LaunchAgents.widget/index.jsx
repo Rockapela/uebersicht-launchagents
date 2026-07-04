@@ -108,7 +108,7 @@ export const className = `
     background: rgba(255, 255, 255, 0.10);
     border-color: rgba(255, 255, 255, 0.14);
   }
-  .label { font-size: 13px; font-weight: 600; word-break: break-all; line-height: 1.3; cursor: default; }
+  .label { font-size: 13px; font-weight: 600; word-break: break-all; line-height: 1.3; cursor: default; user-select: none; -webkit-user-select: none; }
   .name-anchor { position: relative; display: inline-block; max-width: 100%; }
   .name-input {
     display: block;
@@ -249,6 +249,22 @@ const dotClassFor = (a) => {
 const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const pad2 = (n) => String(n).padStart(2, "0");
 
+// Render a day-of-month number with its ordinal suffix (1st, 2nd, 3rd, 21st, ...).
+const ordinal = (n) => {
+  const rem100 = n % 100;
+  if (rem100 >= 11 && rem100 <= 13) return n + "th";
+  switch (n % 10) {
+    case 1:
+      return n + "st";
+    case 2:
+      return n + "nd";
+    case 3:
+      return n + "rd";
+    default:
+      return n + "th";
+  }
+};
+
 // Format the schedule JSON from launchagent-schedule.sh for display.
 const humanSchedule = (s) => {
   if (!s) return "…";
@@ -259,6 +275,9 @@ const humanSchedule = (s) => {
     const m = hasM ? parseInt(s.minute, 10) : 0;
     if (!hasH && hasM) return "Hourly at :" + pad2(m);
     const at = pad2(h) + ":" + pad2(m);
+    if (s.day !== "" && s.day != null) {
+      return "Monthly on the " + ordinal(parseInt(s.day, 10)) + " at " + at;
+    }
     if (s.weekday === "" || s.weekday == null) return "Daily at " + at;
     return WEEKDAYS[parseInt(s.weekday, 10) % 7] + " at " + at;
   }
@@ -511,6 +530,13 @@ const NameModal = ({ currentName, onSave, onCancel }) => {
 // Modal dialog for editing an agent's schedule. Rendered by Widget; `onSave`
 // receives the current draft, `error` (if set) is shown without closing.
 const ScheduleModal = ({ schedule, error, onSave, onCancel }) => {
+  // Derive the initial frequency from what the plist actually has: a Day
+  // wins (monthly), then a Weekday (weekly), else daily.
+  const hasDay = schedule && schedule.day !== "" && schedule.day != null;
+  const hasWeekday =
+    schedule && schedule.weekday !== "" && schedule.weekday != null;
+  const initialFreq = hasDay ? "monthly" : hasWeekday ? "weekly" : "daily";
+
   const [draft, setDraft] = React.useState({
     hour:
       schedule && schedule.hour !== "" && schedule.hour != null
@@ -520,11 +546,14 @@ const ScheduleModal = ({ schedule, error, onSave, onCancel }) => {
       schedule && schedule.minute !== "" && schedule.minute != null
         ? String(schedule.minute)
         : "0",
-    weekday:
-      schedule && schedule.weekday !== "" && schedule.weekday != null
-        ? String(parseInt(schedule.weekday, 10) % 7)
-        : "-",
+    freq: initialFreq,
+    weekday: hasWeekday ? String(parseInt(schedule.weekday, 10) % 7) : "0",
+    day: hasDay ? String(parseInt(schedule.day, 10)) : "1",
   });
+
+  // Switching frequency keeps whatever weekday/day value is already in the
+  // draft (defaults above cover the case where one was never set).
+  const setFreq = (freq) => setDraft({ ...draft, freq });
 
   const onKeyDown = (e) => {
     if (e.key === "Enter") onSave(draft);
@@ -561,18 +590,38 @@ const ScheduleModal = ({ schedule, error, onSave, onCancel }) => {
           />
           <select
             className="sched-select"
-            value={draft.weekday}
-            onChange={(e) => setDraft({ ...draft, weekday: e.target.value })}
+            value={draft.freq}
+            onChange={(e) => setFreq(e.target.value)}
           >
-            <option value="-">Every day</option>
-            <option value="0">Sun</option>
-            <option value="1">Mon</option>
-            <option value="2">Tue</option>
-            <option value="3">Wed</option>
-            <option value="4">Thu</option>
-            <option value="5">Fri</option>
-            <option value="6">Sat</option>
+            <option value="daily">Daily</option>
+            <option value="weekly">Weekly</option>
+            <option value="monthly">Monthly</option>
           </select>
+          {draft.freq === "weekly" && (
+            <select
+              className="sched-select"
+              value={draft.weekday}
+              onChange={(e) => setDraft({ ...draft, weekday: e.target.value })}
+            >
+              <option value="0">Sun</option>
+              <option value="1">Mon</option>
+              <option value="2">Tue</option>
+              <option value="3">Wed</option>
+              <option value="4">Thu</option>
+              <option value="5">Fri</option>
+              <option value="6">Sat</option>
+            </select>
+          )}
+          {draft.freq === "monthly" && (
+            <input
+              className="sched-num"
+              type="number"
+              min="1"
+              max="31"
+              value={draft.day}
+              onChange={(e) => setDraft({ ...draft, day: e.target.value })}
+            />
+          )}
         </div>
         {error && <div className="sched-err">{error}</div>}
         <div className="modal-actions">
@@ -655,6 +704,13 @@ const Widget = ({ output }) => {
     const agent = modal.agent;
     const h = Math.max(0, Math.min(23, parseInt(draft.hour, 10) || 0));
     const m = Math.max(0, Math.min(59, parseInt(draft.minute, 10) || 0));
+    let weekday = "-";
+    let day = "-";
+    if (draft.freq === "weekly") {
+      weekday = String(Math.max(0, Math.min(6, parseInt(draft.weekday, 10) || 0)));
+    } else if (draft.freq === "monthly") {
+      day = String(Math.max(1, Math.min(31, parseInt(draft.day, 10) || 1)));
+    }
     const cmd =
       SCHEDULE_CMD + " set '" +
       agent.plist.replace(/'/g, "'\\''") +
@@ -665,7 +721,9 @@ const Widget = ({ output }) => {
       " " +
       m +
       " " +
-      draft.weekday;
+      weekday +
+      " " +
+      day;
     try {
       const res = JSON.parse(await run(cmd));
       if (res.ok) {

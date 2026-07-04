@@ -2,7 +2,7 @@
 # Read or edit a LaunchAgent's schedule for the Übersicht widget.
 # Stock tools only: plutil, /usr/libexec/PlistBuddy, launchctl, id, cp.
 #   get <plist>
-#   set <plist> <label> <hour> <minute> <weekday|->
+#   set <plist> <label> <hour> <minute> <weekday|-> <day|->
 set -uo pipefail
 PB=/usr/libexec/PlistBuddy
 cmd="${1:-}"
@@ -17,12 +17,13 @@ json_get() {
 
     if [ -n "$cal" ]; then
         if [ "${cal:0:1}" = "{" ]; then
-            local hour minute weekday
+            local hour minute weekday day
             hour=$(plutil -extract StartCalendarInterval.Hour raw -o - "$plist" 2>/dev/null) || hour=""
             minute=$(plutil -extract StartCalendarInterval.Minute raw -o - "$plist" 2>/dev/null) || minute=""
             weekday=$(plutil -extract StartCalendarInterval.Weekday raw -o - "$plist" 2>/dev/null) || weekday=""
-            printf '{"kind":"calendar","editable":true,"hour":"%s","minute":"%s","weekday":"%s"}' \
-                "$hour" "$minute" "$weekday"
+            day=$(plutil -extract StartCalendarInterval.Day raw -o - "$plist" 2>/dev/null) || day=""
+            printf '{"kind":"calendar","editable":true,"hour":"%s","minute":"%s","weekday":"%s","day":"%s"}' \
+                "$hour" "$minute" "$weekday" "$day"
         else
             printf '{"kind":"calendar-multi","editable":false}'
         fi
@@ -34,7 +35,7 @@ json_get() {
 }
 
 set_sched() {
-    local plist="$1" label="$2" hour="$3" minute="$4" weekday="$5"
+    local plist="$1" label="$2" hour="$3" minute="$4" weekday="$5" day="$6"
     [ -w "$plist" ] || { printf '{"ok":false,"error":"plist not writable"}'; return; }
 
     # Only a single StartCalendarInterval dict is editable.
@@ -60,6 +61,13 @@ set_sched() {
             "$PB" -c "Add :StartCalendarInterval:Weekday integer $weekday" "$plist" 2>/dev/null
         fi
     fi
+    if [ "$day" = "-" ]; then
+        "$PB" -c "Delete :StartCalendarInterval:Day" "$plist" 2>/dev/null || true
+    else
+        if ! "$PB" -c "Set :StartCalendarInterval:Day $day" "$plist" 2>/dev/null; then
+            "$PB" -c "Add :StartCalendarInterval:Day integer $day" "$plist" 2>/dev/null
+        fi
+    fi
 
     # Reload so the new schedule takes effect now.
     local uid
@@ -74,6 +82,6 @@ set_sched() {
 
 case "$cmd" in
     get) json_get "${2:-}" ;;
-    set) set_sched "${2:-}" "${3:-}" "${4:-}" "${5:-}" "${6:-}" ;;
-    *) printf '{"error":"usage: launchagent-schedule.sh get <plist> | set <plist> <label> <hour> <minute> <weekday|->"}' ;;
+    set) set_sched "${2:-}" "${3:-}" "${4:-}" "${5:-}" "${6:-}" "${7:-}" ;;
+    *) printf '{"error":"usage: launchagent-schedule.sh get <plist> | set <plist> <label> <hour> <minute> <weekday|-> <day|->"}' ;;
 esac
