@@ -15,7 +15,12 @@ const CONFIG = {
 };
 // --------------------------------------------------------------------------
 
-const STATUS_CMD = "./launchagent-status.sh";
+// Übersicht runs a widget's `command` (and `run()` calls) from the WIDGETS
+// directory, not the widget bundle, so scripts must be referenced through the
+// bundle folder name. Keep this in sync with the folder name if you rename it.
+const WIDGET_DIR = "LaunchAgents.widget";
+const STATUS_CMD = "./" + WIDGET_DIR + "/launchagent-status.sh";
+const SCHEDULE_CMD = "./" + WIDGET_DIR + "/launchagent-schedule.sh";
 
 // The main (menu-bar) display sits at the global coordinate origin: its
 // available area starts at x=0 with only the menu bar / notch above it.
@@ -268,7 +273,7 @@ const AgentRow = ({ a, displayName, onSetName }) => {
     }
     try {
       const raw = await run(
-        "./launchagent-schedule.sh get '" +
+        SCHEDULE_CMD + " get '" +
           a.plist.replace(/'/g, "'\\''") +
           "'"
       );
@@ -295,7 +300,7 @@ const AgentRow = ({ a, displayName, onSetName }) => {
     const h = Math.max(0, Math.min(23, parseInt(schedDraft.hour, 10) || 0));
     const m = Math.max(0, Math.min(59, parseInt(schedDraft.minute, 10) || 0));
     const cmd =
-      "./launchagent-schedule.sh set '" +
+      SCHEDULE_CMD + " set '" +
       a.plist.replace(/'/g, "'\\''") +
       "' '" +
       a.label.replace(/'/g, "'\\''") +
