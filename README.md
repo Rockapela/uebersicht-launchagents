@@ -96,9 +96,9 @@ Edit the `CONFIG` block at the top of `LaunchAgents.widget/index.jsx`:
 - `refreshMs` — status refresh interval (default 5 min).
 - `position` — `top` / `right` CSS offset.
 - `mainScreenOnly` — when `true`, the widget appears only on the main
-  (menu-bar) display. Default `false`. As an alternative you can leave this
-  `false` and use Übersicht's built-in per-display picker (menu-bar icon →
-  the widget → choose a display).
+  (menu-bar) display. Default `true`. Set it to `false` to show the widget
+  on every display, or use Übersicht's built-in per-display picker
+  (menu-bar icon → the widget → choose a display).
 
 You can also drag the widget: click the 🔒 in the title bar to unlock, drag
 the title bar, then lock it again. Position persists locally.

@@ -11,7 +11,7 @@ const CONFIG = {
   // Where the widget sits on screen (CSS values).
   position: { top: "60px", right: "20px" },
   // When true, the widget renders ONLY on the main (menu-bar) display.
-  mainScreenOnly: false,
+  mainScreenOnly: true,
 };
 // --------------------------------------------------------------------------
 
