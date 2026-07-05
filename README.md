@@ -11,7 +11,7 @@ A desktop dashboard for your macOS LaunchAgents. It auto-discovers every
 
 No configuration required — install it and it shows your agents.
 
-<img width="359" height="330" alt="Screenshot 2026-07-05 at 8 52 30 AM" src="https://github.com/user-attachments/assets/ec3e8314-5d01-4231-b6f6-e35b8d73b6f0" />
+<img width="371" height="358" alt="Screenshot 2026-07-05 at 8 53 50 AM" src="https://github.com/user-attachments/assets/d50be6ae-4a9a-4049-ac57-bbed2d12d4ad" />
 
 ## Install
 
